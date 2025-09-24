@@ -38,7 +38,7 @@
 
         <!-- AI Powered OCR Note -->
         <div class="p-4 mb-6 bg-blue-50 border border-blue-200 rounded-lg text-blue-800 flex items-center">
-             <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-6 w-6 mr-3 text-blue-500"><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"></path><path d="M5 3v4"></path><path d="M19 17v4"></path><path d="M3 5h4"></path><path d="M17 19h4"></path></svg>
+             <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24" 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-6 w-6 mr-3 text-blue-500"><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"></path><path d="M5 3v4"></path><path d="M19 17v4"></path><path d="M3 5h4"></path><path d="M17 19h4"></path></svg>
             <p><strong class="font-semibold">Smart Scan AI Enabled:</strong> This tool utilizes an advanced OCR AI to accurately extract text and tables from scanned documents, simplifying the reconciliation process.</p>
         </div>
 
@@ -550,19 +550,13 @@
                 
                 const fileHeaderMap = new Map();
                 fileHeaders.forEach((h, i) => fileHeaderMap.set(h.toLowerCase(), { original: h, index: i }));
-
-                const missingHeaders = requiredFields.filter(field => !fileHeaderMap.has(field.toLowerCase()));
-
-                if (missingHeaders.length > 0) {
-                    throw new Error(`The Excel file is missing required columns: ${missingHeaders.join(', ')}`);
-                }
                 
                 let errors = [];
                 const xmlPayments = rows.map((row, index) => {
                     const rowData = {};
                     requiredFields.forEach(field => {
                         const headerInfo = fileHeaderMap.get(field.toLowerCase());
-                        if (headerInfo) {
+                        if (headerInfo && row[headerInfo.index] !== undefined) {
                             rowData[field] = row[headerInfo.index];
                         }
                     });
@@ -609,8 +603,17 @@
 
                     const sourcePreviewHtml = `<div class="overflow-x-auto h-96 border rounded-lg">
                         <table class="w-full text-sm text-left">
-                            <thead class="bg-gray-100 text-gray-700 sticky top-0"><tr>${fileHeaders.map(h => `<th class="p-2 font-medium">${h}</th>`).join('')}</tr></thead>
-                            <tbody>${rows.map(row => `<tr>${row.map(cell => `<td class="p-2 border-t">${escapeXml(String(cell))}</td>`).join('')}</tr>`).join('')}</tbody>
+                            <thead class="bg-gray-100 text-gray-700 sticky top-0"><tr>${requiredFields.map(h => `<th class="p-2 font-medium">${h}</th>`).join('')}</tr></thead>
+                            <tbody>${rows.map(row => {
+                                let rowHtml = '<tr>';
+                                requiredFields.forEach(field => {
+                                    const headerInfo = fileHeaderMap.get(field.toLowerCase());
+                                    const cellValue = (headerInfo && row[headerInfo.index] !== undefined) ? row[headerInfo.index] : '';
+                                    rowHtml += `<td class="p-2 border-t">${escapeXml(String(cellValue))}</td>`;
+                                });
+                                rowHtml += '</tr>';
+                                return rowHtml;
+                            }).join('')}</tbody>
                         </table>
                     </div>`;
 
