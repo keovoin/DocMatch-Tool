@@ -38,7 +38,7 @@
 
         <!-- AI Powered OCR Note -->
         <div class="p-4 mb-6 bg-blue-50 border border-blue-200 rounded-lg text-blue-800 flex items-center">
-             <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24" 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-6 w-6 mr-3 text-blue-500"><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"></path><path d="M5 3v4"></path><path d="M19 17v4"></path><path d="M3 5h4"></path><path d="M17 19h4"></path></svg>
+             <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-6 w-6 mr-3 text-blue-500"><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"></path><path d="M5 3v4"></path><path d="M19 17v4"></path><path d="M3 5h4"></path><path d="M17 19h4"></path></svg>
             <p><strong class="font-semibold">Smart Scan AI Enabled:</strong> This tool utilizes an advanced OCR AI to accurately extract text and tables from scanned documents, simplifying the reconciliation process.</p>
         </div>
 
@@ -59,16 +59,16 @@
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <!-- Soft File Upload -->
                     <div id="verify-soft-drop-zone" class="drop-zone p-6 rounded-lg bg-white shadow-sm text-center">
-                        <h3 class="font-semibold text-lg mb-2">1. Upload Soft File (Excel)</h3>
-                        <p class="text-sm text-gray-500 mb-4">Drag & drop your Excel file here or click to browse.</p>
-                        <input type="file" id="verify-soft-input" class="hidden" accept=".xlsx, .xls">
-                        <button onclick="document.getElementById('verify-soft-input').click()" class="bg-blue-500 text-white px-4 py-2 rounded-md hover:bg-blue-600">Browse File</button>
-                        <p id="verify-soft-filename" class="mt-4 text-sm text-gray-600"></p>
+                        <h3 class="font-semibold text-lg mb-2">1. Upload Soft Files (Excel)</h3>
+                        <p class="text-sm text-gray-500 mb-4">Drag & drop one or more Excel files (e.g., USD & KHR).</p>
+                        <input type="file" id="verify-soft-input" class="hidden" accept=".xlsx, .xls" multiple>
+                        <button onclick="document.getElementById('verify-soft-input').click()" class="bg-blue-500 text-white px-4 py-2 rounded-md hover:bg-blue-600">Browse Files</button>
+                        <div id="verify-soft-filenames" class="mt-4 text-sm text-gray-600 text-left px-4"></div>
                     </div>
                     <!-- Hard Copy Upload -->
                     <div id="verify-hard-drop-zone" class="drop-zone p-6 rounded-lg bg-white shadow-sm text-center">
                         <h3 class="font-semibold text-lg mb-2">2. Upload Scanned PDF</h3>
-                        <p class="text-sm text-gray-500 mb-4">Drag & drop your scanned PDF here or click to browse.</p>
+                        <p class="text-sm text-gray-500 mb-4">Drag & drop your multi-page PDF here or click to browse.</p>
                         <input type="file" id="verify-hard-input" class="hidden" accept=".pdf">
                         <button onclick="document.getElementById('verify-hard-input').click()" class="bg-blue-500 text-white px-4 py-2 rounded-md hover:bg-blue-600">Browse File</button>
                         <p id="verify-hard-filename" class="mt-4 text-sm text-gray-600"></p>
@@ -117,7 +117,7 @@
 
     <script>
         // --- Global State ---
-        let softFile = null;
+        let softFiles = [];
         let hardFile = null;
         let extractFile = null;
         let convertFile = null;
@@ -134,11 +134,10 @@
             document.getElementById(`tab-${tab}`).classList.add('tab-active');
         }
 
-        function setupDropZone(dropZoneId, inputId, fileStateSetter, filenameId, buttonId) {
+        function setupDropZone(dropZoneId, inputId, fileStateSetter, filenameId, buttonId, isMultiple = false) {
             const dropZone = document.getElementById(dropZoneId);
             const fileInput = document.getElementById(inputId);
             const filenameEl = document.getElementById(filenameId);
-            const actionButton = document.getElementById(buttonId);
 
             dropZone.addEventListener('dragover', (e) => {
                 e.preventDefault();
@@ -151,26 +150,37 @@
                 const files = e.dataTransfer.files;
                 if (files.length > 0) {
                     fileInput.files = files;
-                    handleFileChange(files[0], fileStateSetter, filenameEl, actionButton);
+                    handleFileChange(files, fileStateSetter, filenameEl, isMultiple);
                 }
             });
             fileInput.addEventListener('change', (e) => {
-                const file = e.target.files[0];
-                if (file) {
-                    handleFileChange(file, fileStateSetter, filenameEl, actionButton);
+                const files = e.target.files;
+                if (files.length > 0) {
+                    handleFileChange(files, fileStateSetter, filenameEl, isMultiple);
                 }
             });
         }
         
-        function handleFileChange(file, fileStateSetter, filenameEl, buttonId) {
-            fileStateSetter(file);
-            filenameEl.textContent = `File selected: ${file.name}`;
+        function handleFileChange(files, fileStateSetter, filenameEl, isMultiple) {
+            if (isMultiple) {
+                fileStateSetter(Array.from(files));
+                if (files.length > 0) {
+                    filenameEl.innerHTML = '<ul class="list-disc list-inside">' + Array.from(files).map(f => `<li class="truncate">${f.name}</li>`).join('') + '</ul>';
+                } else {
+                    filenameEl.innerHTML = '';
+                }
+            } else {
+                const file = files[0];
+                fileStateSetter(file);
+                filenameEl.textContent = file ? `File selected: ${file.name}` : '';
+            }
             checkAllFilesAndEnableButtons();
         }
 
+
         function checkAllFilesAndEnableButtons() {
             // Verification button
-            document.getElementById('verify-btn').disabled = !(softFile && hardFile);
+            document.getElementById('verify-btn').disabled = !(softFiles.length > 0 && hardFile);
             // Extraction button
             document.getElementById('extract-btn').disabled = !extractFile;
             // Conversion button
@@ -179,10 +189,10 @@
 
         // --- Initialization ---
         document.addEventListener('DOMContentLoaded', () => {
-            setupDropZone('verify-soft-drop-zone', 'verify-soft-input', (f) => softFile = f, 'verify-soft-filename', 'verify-btn');
-            setupDropZone('verify-hard-drop-zone', 'verify-hard-input', (f) => hardFile = f, 'verify-hard-filename', 'verify-btn');
-            setupDropZone('extract-drop-zone', 'extract-input', (f) => extractFile = f, 'extract-filename', 'extract-btn');
-            setupDropZone('convert-drop-zone', 'convert-input', (f) => convertFile = f, 'convert-filename', 'convert-btn');
+            setupDropZone('verify-soft-drop-zone', 'verify-soft-input', (files) => softFiles = files, 'verify-soft-filenames', 'verify-btn', true);
+            setupDropZone('verify-hard-drop-zone', 'verify-hard-input', (file) => hardFile = file, 'verify-hard-filename', 'verify-btn');
+            setupDropZone('extract-drop-zone', 'extract-input', (file) => extractFile = file, 'extract-filename', 'extract-btn');
+            setupDropZone('convert-drop-zone', 'convert-input', (file) => convertFile = file, 'convert-filename', 'convert-btn');
         });
 
         // --- Helper and AI Functions ---
@@ -337,14 +347,31 @@
             resultsEl.innerHTML = '';
             
             try {
-                const softDataRaw = await readExcelFile(softFile);
-                if (!softDataRaw || softDataRaw.length === 0) {
-                     throw new Error("The uploaded Excel file appears to be empty or corrupted.");
+                if (softFiles.length === 0) {
+                    throw new Error("Please upload at least one Excel file.");
                 }
-                // Clean the data by trimming whitespace from every cell
-                const softData = softDataRaw.map(row => row.map(cell => String(cell || '').trim()));
+
+                const allSoftFilePromises = softFiles.map(file => readExcelFile(file));
+                const allSoftDataArrays = await Promise.all(allSoftFilePromises);
                 
-                const prompt = `Analyze this document image. Identify the main table within it. Extract all rows from the table. Return the data as a JSON object with a single key "table_data", where the value is an array of arrays. Each inner array represents a row, and its elements should be the cell values as strings. For example: {"table_data": [["Header1", "Header2"], ["Row1Cell1", "Row1Cell2"]]}.`;
+                let combinedSoftDataRaw = [];
+                allSoftDataArrays.forEach((data, index) => {
+                    if (!data || data.length === 0) return; // Skip empty files
+                    if (index === 0 || combinedSoftDataRaw.length === 0) {
+                        combinedSoftDataRaw.push(...data); // Add header and data from first non-empty file
+                    } else {
+                        combinedSoftDataRaw.push(...data.slice(1)); // Add only data from other files
+                    }
+                });
+
+                if (combinedSoftDataRaw.length === 0) {
+                     throw new Error("All uploaded Excel files appear to be empty or corrupted.");
+                }
+
+                // Clean the data by trimming whitespace from every cell
+                const softData = combinedSoftDataRaw.map(row => row.map(cell => String(cell || '').trim()));
+                
+                const prompt = `Analyze this entire document, including all pages. Find all tables that contain transaction data. Extract and combine all rows from these tables into a single, unified dataset. The final result should have only one header row. Return the data as a JSON object with a single key "table_data", where the value is an array of arrays. For example: {"table_data": [["Header1", "Header2"], ["Row1Cell1", "Row1Cell2"]]}.`;
                 const hardDataResponse = await callGeminiOcr(hardFile, prompt);
                 
                 // Clean the AI-extracted data by trimming whitespace
@@ -562,10 +589,10 @@
                     });
 
                     // Validation
-                    if (rowData.Amount === undefined || isNaN(parseFloat(rowData.Amount))) {
+                    if (rowData.Amount !== undefined && rowData.Amount !== '' && isNaN(parseFloat(rowData.Amount))) {
                         errors.push(`Row ${index + 2}: Amount "${rowData.Amount}" is not a valid number.`);
                     }
-                    if (rowData.PaymentDate === undefined || !/^\d{8}$/.test(String(rowData.PaymentDate))) {
+                    if (rowData.PaymentDate !== undefined && rowData.PaymentDate !== '' && !/^\d{8}$/.test(String(rowData.PaymentDate))) {
                          errors.push(`Row ${index + 2}: PaymentDate "${rowData.PaymentDate}" is not in DDMMYYYY format.`);
                     }
                     
