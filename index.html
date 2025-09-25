@@ -176,60 +176,26 @@
         }
 
         // --- NEW: Helper functions for smart comparison ---
-
-        /**
-         * Normalizes a value for comparison.
-         * - Trims whitespace.
-         * - For strings, converts to lowercase.
-         * - For numbers-like strings, removes commas, currency symbols, and spaces.
-         * @param {*} value The value to normalize.
-         * @returns {string} The normalized string value.
-         */
         function normalizeValue(value) {
-            if (value === undefined || value === null) {
-                return '';
-            }
+            if (value === undefined || value === null) return '';
             let s = String(value).trim();
-            // This regex removes common currency symbols and all commas.
             return s.replace(/[\p{Sc},]/gu, '').toLowerCase();
         }
 
-        /**
-         * Compares two values for matching, with special handling for numbers.
-         * @param {*} val1 First value
-         * @param {*} val2 Second value
-         * @returns {boolean} True if they match.
-         */
         function areValuesEqual(val1, val2) {
             const norm1 = normalizeValue(val1);
             const norm2 = normalizeValue(val2);
-
-            // Try to compare as numbers if they look like numbers
             const num1 = parseFloat(norm1);
             const num2 = parseFloat(norm2);
-
-            if (!isNaN(num1) && !isNaN(num2)) {
-                // Use a small epsilon for floating point comparison
-                return Math.abs(num1 - num2) < 0.001;
-            }
-
-            // Otherwise, compare as strings
+            if (!isNaN(num1) && !isNaN(num2)) return Math.abs(num1 - num2) < 0.001;
             return norm1 === norm2;
         }
 
-        /**
-         * Finds the index of a column by checking a list of possible alias names.
-         * @param {string[]} headers - The list of headers from the file.
-         * @param {string[]} aliases - The list of possible names for the column (e.g., ['name', 'ឈ្មោះ']).
-         * @returns {number} The index of the column, or -1 if not found.
-         */
         function findColumnIndex(headers, aliases) {
             for (const alias of aliases) {
                 const normalizedAlias = normalizeValue(alias);
                 const index = headers.findIndex(h => normalizeValue(h) === normalizedAlias);
-                if (index !== -1) {
-                    return index;
-                }
+                if (index !== -1) return index;
             }
             return -1;
         }
@@ -246,50 +212,27 @@
         // --- Helper and AI Functions ---
         async function callGeminiOcr(file, prompt) {
             const apiKey = "AIzaSyByQkxfWWVZByQ4yiUFok0UwYBmYjIfJtk"; // Internal tool key
-            
-            if (!apiKey || apiKey === "YOUR_API_KEY_HERE") {
-                throw new Error("API Key is not configured in the code. Please contact the administrator.");
-            }
-
+            if (!apiKey || apiKey === "YOUR_API_KEY_HERE") throw new Error("API Key is not configured.");
             const base64Data = await fileToBase64(file);
             const model = "gemini-1.5-flash-latest";
             const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
-
             const payload = {
                 contents: [{ parts: [{ text: prompt }, { inlineData: { mimeType: file.type, data: base64Data } }] }],
                  generationConfig: { responseMimeType: "application/json" }
             };
-            
             try {
-                const response = await fetch(apiUrl, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(payload)
-                });
-
+                const response = await fetch(apiUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
                 if (!response.ok) {
                     const errorBody = await response.text();
-                    let userFriendlyMessage = `API Error: ${response.status}. ${errorBody}`;
-                    try {
-                        const errorJson = JSON.parse(errorBody);
-                        if (errorJson.error?.message?.includes("document has no pages")) {
-                            userFriendlyMessage = "The uploaded PDF could not be processed. The file might be empty, corrupted, or in an unsupported format.";
-                        }
-                    } catch (parseError) {}
-                    throw new Error(userFriendlyMessage);
+                    let msg = `API Error: ${response.status}. ${errorBody}`;
+                    try { if (JSON.parse(errorBody).error?.message?.includes("document has no pages")) msg = "The uploaded PDF might be empty or corrupted."; } catch (e) {}
+                    throw new Error(msg);
                 }
-                
                 const result = await response.json();
                 const text = result.candidates?.[0]?.content?.parts?.[0]?.text;
                 if (!text) throw new Error("AI did not return any text from the document.");
-                
-                const cleanedJsonString = text.replace(/```json\n|```/g, '').trim();
-                return JSON.parse(cleanedJsonString);
-
-            } catch(e) {
-                console.error("Error during AI call:", e);
-                throw e;
-            }
+                return JSON.parse(text.replace(/```json\n|```/g, '').trim());
+            } catch(e) { console.error("Error during AI call:", e); throw e; }
         }
         
         function fileToBase64(file) {
@@ -321,9 +264,9 @@
         }
 
         function downloadFile(content, fileName, mimeType) {
-            const a = document.createElement('a');
             const blob = new Blob([content], { type: mimeType });
             const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
             a.href = url;
             a.download = fileName;
             document.body.appendChild(a);
@@ -346,7 +289,7 @@
         // --- Core Logic for Each Tab ---
 
         /**
-         * 1. VERIFICATION LOGIC (REWRITTEN)
+         * 1. VERIFICATION LOGIC (IMPROVED DICTIONARY)
          */
         async function runVerification() {
             showLoader('verify-loader');
@@ -355,32 +298,33 @@
             resultsEl.innerHTML = '';
             
             const HEADER_ALIASES = {
-                serialNo: ['serialno', 'serial no', 'no.', 'no', 'លេខរៀង', 'ល.រ'],
+                serialNo: ['serialno', 'serial no', 'no.', 'no', 'លេខរៀង', 'ល.រ', 'លេខ'],
+                licenseNo: ['licenseno', 'license number', 'លេខអាជ្ញាបណ្ណ'],
                 accountNo: ['accountno', 'account number', 'លេខគណនី'],
-                name: ['name', 'beneficiary name', 'payee name', 'ឈ្មោះ', 'ឈ្មោះអ្នកទទួល', 'ឈ្មោះអជ្ញាបណ្ណ'],
-                amount: ['amount', 'total', 'ចំនួនទឹកប្រាក់', 'សរុប']
+                name: ['name', 'beneficiary name', 'payee name', 'account name', 'licensee name', 'ឈ្មោះ', 'ឈ្មោះអ្នកទទួល', 'ឈ្មោះអាជ្ញាបណ្ណ', 'ឈ្មោះគណនី'],
+                amount: ['amount', 'total', 'amount to be transferred', 'ចំនួនទឹកប្រាក់', 'សរុប', 'ទឹកប្រាក់ត្រូវផ្ទេរ'],
+                bank: ['bank', 'bank name', 'payee bank', 'ធនាគារ', 'ឈ្មោះធនាគារ'],
+                remarks: ['remarks', 'description', 'others', 'ផ្សេងៗ']
             };
 
             try {
-                // Read and combine all uploaded Excel (soft) files
-                const allSoftFilePromises = softFiles.map(file => readExcelFile(file));
-                const allSoftDataArrays = await Promise.all(allSoftFilePromises);
+                // Read and combine Excel files
+                const allSoftDataArrays = await Promise.all(softFiles.map(file => readExcelFile(file)));
                 let combinedSoftDataRaw = [];
-                allSoftDataArrays.forEach((data, index) => {
+                allSoftDataArrays.forEach((data) => {
                     if (!data || data.length === 0) return;
                     if (combinedSoftDataRaw.length === 0) combinedSoftDataRaw.push(...data);
                     else combinedSoftDataRaw.push(...data.slice(1));
                 });
-
-                if (combinedSoftDataRaw.length < 2) throw new Error("All uploaded Excel files appear to be empty or contain no data rows.");
+                if (combinedSoftDataRaw.length < 2) throw new Error("Excel files are empty or contain no data.");
                 
                 const softData = combinedSoftDataRaw.map(row => row.map(cell => String(cell || '').trim()));
 
-                // Read PDF (hard) file using AI
-                const prompt = `Analyze this document, including all pages. Find all transaction tables. Extract and combine all rows into a single dataset with one header row. Return the data as a JSON object: {"table_data": [["Header1", "Header2"], ["Row1Cell1", "Row1Cell2"]]}.`;
+                // Read PDF file via AI
+                const prompt = `Analyze this document. Find all transaction tables. Combine all rows into a single dataset with one header. Return as JSON: {"table_data": [["Header1"], ["Row1Cell1"]]}.`;
                 const hardDataResponse = await callGeminiOcr(hardFile, prompt);
                 const hardDataRaw = hardDataResponse.table_data;
-                if (!hardDataRaw || hardDataRaw.length < 2) throw new Error("AI could not extract a valid table with data from the PDF.");
+                if (!hardDataRaw || hardDataRaw.length < 2) throw new Error("AI could not extract a table from the PDF.");
 
                 const hardData = hardDataRaw.map(row => row.map(cell => String(cell || '').trim()));
 
@@ -393,25 +337,28 @@
                 const softIndices = {
                     serialNo: findColumnIndex(softHeaders, HEADER_ALIASES.serialNo),
                     accountNo: findColumnIndex(softHeaders, HEADER_ALIASES.accountNo),
+                    licenseNo: findColumnIndex(softHeaders, HEADER_ALIASES.licenseNo),
                 };
                 const hardIndices = {
                     serialNo: findColumnIndex(hardHeaders, HEADER_ALIASES.serialNo),
                     accountNo: findColumnIndex(hardHeaders, HEADER_ALIASES.accountNo),
+                    licenseNo: findColumnIndex(hardHeaders, HEADER_ALIASES.licenseNo),
                 };
 
                 // Step 2: Determine the best unique key to use
                 let keyField = null;
                 if (softIndices.serialNo !== -1 && hardIndices.serialNo !== -1) keyField = 'serialNo';
                 else if (softIndices.accountNo !== -1 && hardIndices.accountNo !== -1) keyField = 'accountNo';
+                else if (softIndices.licenseNo !== -1 && hardIndices.licenseNo !== -1) keyField = 'licenseNo';
                 
                 if (!keyField) {
-                    throw new Error("Match Failed: Could not find a common unique identifier column. Please ensure both files have a 'Serial No' or 'Account Number' column (or a Khmer equivalent like 'លេខរៀង' or 'លេខគណនី').");
+                    throw new Error("Match Failed: Could not find a common unique identifier. Please ensure both files have a 'Serial No', 'Account Number', or 'License Number' column (or a Khmer equivalent).");
                 }
                 
                 const softKeyIndex = softIndices[keyField];
                 const hardKeyIndex = hardIndices[keyField];
 
-                // Step 3: Create a map of Excel data for quick lookups
+                // Step 3: Map Excel data for quick lookups
                 const softDataMap = new Map();
                 softRows.forEach(row => {
                     const key = normalizeValue(row[softKeyIndex]);
@@ -421,22 +368,17 @@
                 // Step 4: Compare PDF data against the Excel map
                 const mismatches = [];
                 let mismatchReport = "Discrepancy Report:\n\n";
+                const hardToSoftHeaderMap = new Map(hardHeaders.map((hHard, iHard) => [iHard, findColumnIndex(softHeaders, [hHard])]).filter(([, iSoft]) => iSoft !== -1));
 
-                const hardToSoftHeaderMap = new Map();
-                hardHeaders.forEach((hHard, iHard) => {
-                    const iSoft = findColumnIndex(softHeaders, [hHard]);
-                    if(iSoft !== -1) hardToSoftHeaderMap.set(iHard, iSoft);
-                });
-
-                hardRows.forEach((hardRow, index) => {
+                hardRows.forEach((hardRow) => {
                     const key = normalizeValue(hardRow[hardKeyIndex]);
-                    if (!key) return; // Skip PDF rows without a key
+                    if (!key) return;
 
                     const softRow = softDataMap.get(key);
                     
                     if (!softRow) {
                         mismatches.push({ type: 'missing_in_soft', data: hardRow, key });
-                        mismatchReport += `Row (Key: ${key}) from PDF is missing in the Excel file.\n`;
+                        mismatchReport += `Row (Key: ${key}) from PDF is missing in Excel.\n`;
                     } else {
                         const mismatchDetails = {};
                         for (const [iHard, iSoft] of hardToSoftHeaderMap.entries()) {
@@ -444,24 +386,20 @@
                                 mismatchDetails[iSoft] = { soft: softRow[iSoft] || '', hard: hardRow[iHard] || '' };
                             }
                         }
-
                         if (Object.keys(mismatchDetails).length > 0) {
                              mismatches.push({ type: 'content_mismatch', soft: softRow, hard: hardRow, details: mismatchDetails, key });
                              mismatchReport += `Row (Key: ${key}) has mismatches:\n`;
-                             Object.entries(mismatchDetails).forEach(([colIndex, vals]) => {
-                                 mismatchReport += `  - Column "${softHeaders[colIndex]}": Excel has "${vals.soft}", PDF has "${vals.hard}".\n`;
-                             });
+                             Object.entries(mismatchDetails).forEach(([colIndex, vals]) => { mismatchReport += `  - Column "${softHeaders[colIndex]}": Excel has "${vals.soft}", PDF has "${vals.hard}".\n`; });
                         }
-                        softDataMap.delete(key); // Matched, so remove from map
+                        softDataMap.delete(key);
                     }
                 });
-
                 softDataMap.forEach((softRow, key) => {
                     mismatches.push({ type: 'missing_in_hard', data: softRow, key });
-                    mismatchReport += `Row (Key: ${key}) from Excel is missing in the PDF file.\n`;
+                    mismatchReport += `Row (Key: ${key}) from Excel is missing in PDF.\n`;
                 });
 
-                // Step 5: Render results, using Excel as the source of truth for column order
+                // Step 5: Render results based on Excel's column order
                 let html = `<h3 class="text-xl font-bold mb-4">Comparison Results</h3>`;
                 if (mismatches.length === 0) {
                     html += `<p class="p-4 bg-green-100 text-green-800 rounded-md">✅ All records match perfectly!</p>`;
@@ -469,40 +407,33 @@
                     html += `<div class="flex justify-between items-center mb-4">
                         <p class="text-lg font-semibold text-red-600">${mismatches.length} ${mismatches.length > 1 ? 'discrepancies' : 'discrepancy'} found.</p>
                         <button onclick="downloadFile(this.dataset.report, 'discrepancy-report.txt', 'text/plain')" data-report="${escape(mismatchReport)}" class="bg-gray-700 text-white px-4 py-2 rounded-md hover:bg-gray-800">Download Report</button>
-                     </div>`;
-                    html += `<div class="overflow-x-auto"><table class="w-full text-sm text-left">
-                        <thead class="bg-gray-100 text-gray-700"><tr>
-                            <th class="p-3">Source</th>${softHeaders.map(h => `<th class="p-3">${h}</th>`).join('')}
-                        </tr></thead><tbody>`;
+                     </div>
+                     <div class="overflow-x-auto"><table class="w-full text-sm text-left">
+                        <thead class="bg-gray-100 text-gray-700"><tr><th class="p-3">Source</th>${softHeaders.map(h => `<th class="p-3">${h}</th>`).join('')}</tr></thead>
+                        <tbody>`;
 
                     const hardHeaderMap = new Map(hardHeaders.map((h, i) => [normalizeValue(h), i]));
-                    const displayedKeys = new Set();
                     
-                    // Display matched and mismatched rows in Excel's order
                     softRows.forEach(softRow => {
                         const key = normalizeValue(softRow[softKeyIndex]);
-                        if(!key || displayedKeys.has(key)) return;
-                        displayedKeys.add(key);
-
+                        if(!key) return;
                         const mismatch = mismatches.find(m => m.key === key);
-                        if(mismatch?.type === 'content_mismatch') {
+                        const reorderHardRow = (hardRow) => softHeaders.map(sh => hardRow[hardHeaderMap.get(normalizeValue(sh))] ?? '');
+
+                        if (mismatch?.type === 'content_mismatch') {
                             html += `<tr class="mismatch-row border-b"><td class="p-3 font-medium">Excel</td>${mismatch.soft.map((cell, i) => `<td class="p-3 ${mismatch.details[i] ? 'mismatch-cell' : ''}">${cell}</td>`).join('')}</tr>`;
-                            const reorderedHardRow = softHeaders.map(sh => mismatch.hard[hardHeaderMap.get(normalizeValue(sh))] ?? '');
-                            html += `<tr class="mismatch-row border-b"><td class="p-3 font-medium">PDF</td>${reorderedHardRow.map((cell, i) => `<td class="p-3 ${mismatch.details[i] ? 'mismatch-cell' : ''}">${cell}</td>`).join('')}</tr>`;
+                            html += `<tr class="mismatch-row border-b"><td class="p-3 font-medium">PDF</td>${reorderHardRow(mismatch.hard).map((cell, i) => `<td class="p-3 ${mismatch.details[i] ? 'mismatch-cell' : ''}">${cell}</td>`).join('')}</tr>`;
                         } else if (mismatch?.type === 'missing_in_hard') {
-                             html += `<tr class="bg-yellow-50 border-b"><td class="p-3 font-medium text-yellow-700">Excel (Missing in PDF)</td>${mismatch.data.map(cell => `<td class="p-3">${cell}</td>`).join('')}</tr>`;
-                        } else { // Matched perfectly
+                            html += `<tr class="bg-yellow-50 border-b"><td class="p-3 font-medium text-yellow-700">Excel (Missing in PDF)</td>${mismatch.data.map(cell => `<td class="p-3">${cell}</td>`).join('')}</tr>`;
+                        } else { // Matched
                             const matchingHardRow = hardRows.find(hr => normalizeValue(hr[hardKeyIndex]) === key);
                             html += `<tr class="border-b"><td class="p-3 font-medium">Excel</td>${softRow.map(cell => `<td class="p-3">${cell}</td>`).join('')}</tr>`;
-                            const reorderedHardRow = softHeaders.map(sh => matchingHardRow[hardHeaderMap.get(normalizeValue(sh))] ?? '');
-                            html += `<tr class="border-b"><td class="p-3 font-medium">PDF</td>${reorderedHardRow.map(cell => `<td class="p-3">${cell}</td>`).join('')}</tr>`;
+                            html += `<tr class="border-b"><td class="p-3 font-medium">PDF</td>${reorderHardRow(matchingHardRow).map(cell => `<td class="p-3">${cell}</td>`).join('')}</tr>`;
                         }
                     });
                     
-                    // Display rows that were only in the PDF
-                    mismatches.filter(m => m.type === 'missing_in_soft').forEach(mismatch => {
-                         const reorderedHardRow = softHeaders.map(sh => mismatch.data[hardHeaderMap.get(normalizeValue(sh))] ?? '');
-                         html += `<tr class="bg-red-50 border-b"><td class="p-3 font-medium text-red-600">PDF (Missing in Excel)</td>${reorderedHardRow.map(cell => `<td class="p-3">${cell}</td>`).join('')}</tr>`;
+                    mismatches.filter(m => m.type === 'missing_in_soft').forEach(m => {
+                        html += `<tr class="bg-red-50 border-b"><td class="p-3 font-medium text-red-600">PDF (Missing in Excel)</td>${softHeaders.map(sh => m.data[hardHeaderMap.get(normalizeValue(sh))] ?? '').map(cell => `<td class="p-3">${cell}</td>`).join('')}</tr>`;
                     });
 
                     html += `</tbody></table></div>`;
@@ -545,7 +476,7 @@
                 const excelBlob = new Blob([excelBuffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
                 const jsonString = JSON.stringify(rows.map(row => headers.reduce((obj, header, i) => ({...obj, [header]: row[i]}), {})), null, 2);
 
-                let html = `<h3 class="text-xl font-bold mb-4">Extracted Table Preview</h3>
+                resultsEl.innerHTML = `<h3 class="text-xl font-bold mb-4">Extracted Table Preview</h3>
                     <div class="flex space-x-4 mb-4">
                         <button id="download-excel-btn" class="bg-green-600 text-white px-4 py-2 rounded-md hover:bg-green-700">Download as Excel</button>
                         <button id="download-json-btn" class="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700">Download as JSON</button>
@@ -554,8 +485,6 @@
                         <thead class="bg-gray-100 text-gray-700"><tr>${headers.map(h => `<th class="p-3">${h}</th>`).join('')}</tr></thead>
                         <tbody>${rows.map(row => `<tr>${row.map(cell => `<td class="p-3 border-b">${cell}</td>`).join('')}</tr>`).join('')}</tbody>
                     </table></div>`;
-                
-                resultsEl.innerHTML = html;
                 
                 document.getElementById('download-excel-btn').onclick = () => downloadFile(excelBlob, 'extracted-table.xlsx');
                 document.getElementById('download-json-btn').onclick = () => downloadFile(jsonString, 'extracted-table.json', 'application/json');
@@ -580,16 +509,12 @@
 
             try {
                 const dataRaw = await readExcelFile(convertFile);
-                if (!dataRaw || dataRaw.length < 2) throw new Error("The Excel file appears to be empty or does not contain any data rows.");
-
+                if (!dataRaw || dataRaw.length < 2) throw new Error("The Excel file is empty or has no data rows.");
                 const data = dataRaw.map(row => row.map(cell => String(cell ?? '').trim()));
                 const fileHeaders = data[0];
                 const rows = data.slice(1);
-
                 const requiredFields = ["PaymentTypeCode", "SerialNo", "PaymentDate", "PayerBank", "PayerCheckDigit", "PayerAccountNo", "CurrencyCode", "Amount", "SecurityCode", "PayerName", "PayerRef", "PayeeBank", "PayeeCheckDigit", "PayeeAccountNo", "PayeeName", "PayeeRef", "ReturnCode", "InputDate", "ProcessingDate", "InputBatchNo", "OutputBatchNo"];
-                
                 const fileHeaderMap = new Map(fileHeaders.map((h, i) => [h.toLowerCase(), i]));
-                
                 let errors = [];
                 const xmlPayments = rows.map((row, index) => {
                     const rowData = {};
@@ -597,38 +522,22 @@
                         const colIndex = fileHeaderMap.get(field.toLowerCase());
                         if (colIndex !== undefined) rowData[field] = row[colIndex];
                     });
-                    
-                    if (rowData.Amount && isNaN(parseFloat(rowData.Amount))) errors.push(`Row ${index + 2}: Amount "${rowData.Amount}" is not a valid number.`);
-                    if (rowData.PaymentDate && !/^\d{8}$/.test(rowData.PaymentDate)) errors.push(`Row ${index + 2}: PaymentDate "${rowData.PaymentDate}" is not in DDMMYYYY format.`);
-                    
+                    if (rowData.Amount && isNaN(parseFloat(rowData.Amount))) errors.push(`Row ${index + 2}: Amount is not a valid number.`);
+                    if (rowData.PaymentDate && !/^\d{8}$/.test(rowData.PaymentDate)) errors.push(`Row ${index + 2}: PaymentDate is not DDMMYYYY.`);
                     return `  <Payment>${requiredFields.map(field => `<${field}>${escapeXml(rowData[field] ?? '')}</${field}>`).join('')}</Payment>`;
                 }).join('\n');
                 
                 if (errors.length > 0) {
                     resultsEl.innerHTML = `<h3 class="text-xl font-bold mb-4 text-red-600">Validation Failed</h3>
-                        <p class="mb-4">Please fix these errors in your Excel file:</p>
                         <ul class="list-disc list-inside bg-red-50 p-4 rounded-md text-red-800">${errors.map(e => `<li>${e}</li>`).join('')}</ul>`;
                 } else {
                     const finalXml = `<?xml version="1.0" encoding="UTF-8"?>\n<SDRFile>\n${xmlPayments}\n</SDRFile>`;
                     const xmlBlob = new Blob([finalXml], { type: 'application/xml' });
-
-                    const sourcePreviewHtml = `<div class="overflow-x-auto h-96 border rounded-lg"><table class="w-full text-sm text-left">
-                        <thead class="bg-gray-100 text-gray-700 sticky top-0"><tr>${fileHeaders.map(h => `<th class="p-2 font-medium">${h}</th>`).join('')}</tr></thead>
-                        <tbody>${rows.map(row => `<tr>${row.map(cell => `<td class="p-2 border-t">${escapeXml(cell)}</td>`).join('')}</tr>`).join('')}</tbody>
-                    </table></div>`;
-
+                    const sourcePreviewHtml = `<div class="overflow-x-auto h-96 border rounded-lg"><table class="w-full text-sm text-left"><thead class="bg-gray-100 text-gray-700 sticky top-0"><tr>${fileHeaders.map(h => `<th class="p-2 font-medium">${h}</th>`).join('')}</tr></thead><tbody>${rows.map(row => `<tr>${row.map(cell => `<td class="p-2 border-t">${escapeXml(cell)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
                     const xmlPreviewHtml = `<pre class="bg-gray-900 text-white p-4 rounded-lg text-sm overflow-auto h-96"><code>${escapeXml(finalXml)}</code></pre>`;
-
-                    resultsEl.innerHTML = `<h3 class="text-xl font-bold mb-4">Conversion Preview</h3>
-                    <div class="flex justify-end mb-4"><button id="download-xml-btn" class="bg-green-600 text-white px-4 py-2 rounded-md hover:bg-green-700 flex items-center space-x-2"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg><span>Download XML File</span></button></div>
-                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                        <div><h4 class="font-semibold mb-2">Source Data Preview (Excel)</h4>${sourcePreviewHtml}</div>
-                        <div><h4 class="font-semibold mb-2">Generated XML Preview</h4>${xmlPreviewHtml}</div>
-                    </div>`;
-
+                    resultsEl.innerHTML = `<h3 class="text-xl font-bold mb-4">Conversion Preview</h3><div class="flex justify-end mb-4"><button id="download-xml-btn" class="bg-green-600 text-white px-4 py-2 rounded-md hover:bg-green-700 flex items-center space-x-2"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg><span>Download XML</span></button></div><div class="grid grid-cols-1 lg:grid-cols-2 gap-6"><div><h4 class="font-semibold mb-2">Source Data (Excel)</h4>${sourcePreviewHtml}</div><div><h4 class="font-semibold mb-2">Generated XML</h4>${xmlPreviewHtml}</div></div>`;
                     document.getElementById('download-xml-btn').onclick = () => downloadFile(xmlBlob, 'SDRFile.xml');
                 }
-
             } catch(e) {
                  console.error(e);
                  displayError('convert-results', e);
