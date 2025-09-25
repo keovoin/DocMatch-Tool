@@ -19,7 +19,6 @@
         .loader { border: 4px solid #f3f3f3; border-top: 4px solid #3b82f6; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
         .mismatch-row { background-color: #fee2e2; }
-        .mismatch-cell { font-weight: bold; color: #dc2626; }
         .fade-in { animation: fadeIn 0.5s ease-in-out; }
         @keyframes fadeIn { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }
     </style>
@@ -43,7 +42,7 @@
 
         <div class="mb-8 border-b border-gray-200">
             <nav class="flex space-x-8" aria-label="Tabs">
-                <button id="tab-verify" onclick="switchTab('verify')" class="px-1 pb-4 text-sm font-medium border-b-2 border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 tab-active">File Verification</button>
+                <button id="tab-verify" onclick="switchTab('verify')" class="px-1 pb-4 text-sm font-medium border-b-2 tab-active">File Verification</button>
                 <button id="tab-extract" onclick="switchTab('extract')" class="px-1 pb-4 text-sm font-medium border-b-2 border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300">PDF Table Extraction</button>
                 <button id="tab-convert" onclick="switchTab('convert')" class="px-1 pb-4 text-sm font-medium border-b-2 border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300">Excel to XML</button>
             </nav>
@@ -74,29 +73,101 @@
                 </div>
                 <div id="verify-results" class="hidden bg-white p-6 rounded-lg shadow-sm fade-in"></div>
             </div>
-            <div id="extract-content" class="hidden space-y-6">...</div>
-             <div id="convert-content" class="hidden space-y-6">...</div>
+
+            <div id="extract-content" class="hidden space-y-6">
+                 <div id="extract-drop-zone" class="drop-zone p-6 rounded-lg bg-white shadow-sm text-center">
+                    <h3 class="font-semibold text-lg mb-2">Upload Scanned PDF for Table Extraction</h3>
+                    <input type="file" id="extract-input" class="hidden" accept=".pdf">
+                    <button onclick="document.getElementById('extract-input').click()" class="bg-blue-500 text-white px-4 py-2 rounded-md hover:bg-blue-600">Browse File</button>
+                    <p id="extract-filename" class="mt-4 text-sm text-gray-600"></p>
+                </div>
+                <div class="text-center">
+                    <button id="extract-btn" onclick="runExtraction()" class="bg-green-600 text-white px-6 py-3 rounded-lg hover:bg-green-700 font-semibold disabled:bg-gray-400" disabled>Extract Table</button>
+                </div>
+                <div id="extract-loader" class="hidden justify-center items-center py-6 flex-col space-y-2">
+                    <div class="loader"></div>
+                    <p id="ocr-status-extract" class="text-sm text-gray-600"></p>
+                </div>
+                <div id="extract-results" class="hidden bg-white p-6 rounded-lg shadow-sm fade-in"></div>
+            </div>
+
+            <div id="convert-content" class="hidden space-y-6">
+                <div id="convert-drop-zone" class="drop-zone p-6 rounded-lg bg-white shadow-sm text-center">
+                    <h3 class="font-semibold text-lg mb-2">Upload Excel File for XML Conversion</h3>
+                    <input type="file" id="convert-input" class="hidden" accept=".xlsx, .xls">
+                    <button onclick="document.getElementById('convert-input').click()" class="bg-blue-500 text-white px-4 py-2 rounded-md hover:bg-blue-600">Browse File</button>
+                    <p id="convert-filename" class="mt-4 text-sm text-gray-600"></p>
+                </div>
+                <div class="text-center">
+                    <button id="convert-btn" onclick="runConversion()" class="bg-green-600 text-white px-6 py-3 rounded-lg hover:bg-green-700 font-semibold disabled:bg-gray-400" disabled>Convert to XML</button>
+                </div>
+                <div id="convert-loader" class="hidden justify-center items-center py-6"><div class="loader"></div></div>
+                <div id="convert-results" class="hidden bg-white p-6 rounded-lg shadow-sm fade-in"></div>
+            </div>
         </main>
     </div>
 
     <script>
         // --- Global State & Setup ---
         let softFiles = [], hardFile = null, extractFile = null, convertFile = null;
+
         document.addEventListener('DOMContentLoaded', () => {
             setupDropZone('verify-soft-drop-zone', 'verify-soft-input', (files) => softFiles = files, 'verify-soft-filenames', true);
-            setupDropZone('verify-hard-drop-zone', 'verify-hard-input', (file) => hardFile = file, 'verify-hard-filename');
+            setupDropZone('verify-hard-drop-zone', 'verify-hard-input', (file) => hardFile = file, 'verify-hard-filename', false);
+            setupDropZone('extract-drop-zone', 'extract-input', (file) => extractFile = file, 'extract-filename', false);
+            setupDropZone('convert-drop-zone', 'convert-input', (file) => convertFile = file, 'convert-filename', false);
         });
 
         // --- UI Management ---
-        function switchTab(tab) { /* Unchanged */ }
-        function setupDropZone(id, inputId, setter, filenameId, multiple = false) { /* Unchanged */ }
-        function handleFileChange(files, setter, el, multiple) { /* Unchanged */ }
-        function checkAllFilesAndEnableButtons() { document.getElementById('verify-btn').disabled = !(softFiles.length > 0 && hardFile); }
+        function switchTab(tabId) {
+            ['verify', 'extract', 'convert'].forEach(t => {
+                document.getElementById(`${t}-content`).classList.add('hidden');
+                document.getElementById(`tab-${t}`).classList.remove('tab-active');
+            });
+            document.getElementById(`${tabId}-content`).classList.remove('hidden');
+            document.getElementById(`tab-${tabId}`).classList.add('tab-active');
+        }
+
+        function setupDropZone(dropZoneId, inputId, fileSetter, filenameId, isMultiple) {
+            const dropZone = document.getElementById(dropZoneId);
+            const fileInput = document.getElementById(inputId);
+            const filenameEl = document.getElementById(filenameId);
+            const handler = (files) => {
+                if (files.length > 0) {
+                    fileInput.files = files;
+                    handleFileChange(files, fileSetter, filenameEl, isMultiple);
+                }
+            };
+            dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
+            dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+            dropZone.addEventListener('drop', e => { e.preventDefault(); dropZone.classList.remove('drag-over'); handler(e.dataTransfer.files); });
+            fileInput.addEventListener('change', e => handler(e.target.files));
+        }
+
+        function handleFileChange(files, fileSetter, filenameEl, isMultiple) {
+            if (isMultiple) {
+                fileSetter(Array.from(files));
+                filenameEl.innerHTML = files.length > 0 ? `<ul class="list-disc list-inside">${Array.from(files).map(f => `<li class="truncate">${f.name}</li>`).join('')}</ul>` : '';
+            } else {
+                fileSetter(files[0]);
+                filenameEl.textContent = files[0] ? `File selected: ${files[0].name}` : '';
+            }
+            checkAllFilesAndEnableButtons();
+        }
+
+        function checkAllFilesAndEnableButtons() {
+            document.getElementById('verify-btn').disabled = !(softFiles.length > 0 && hardFile);
+            document.getElementById('extract-btn').disabled = !extractFile;
+            document.getElementById('convert-btn').disabled = !convertFile;
+        }
+
         function showLoader(loaderId, statusElId, message = '') {
             document.getElementById(loaderId).style.display = 'flex';
-            if(statusElId) document.getElementById(statusElId).textContent = message;
+            if (statusElId) document.getElementById(statusElId).textContent = message;
         }
+
         function hideLoader(loaderId) { document.getElementById(loaderId).style.display = 'none'; }
+
         function displayError(resultsId, error) {
             const el = document.getElementById(resultsId);
             el.innerHTML = `<div class="p-4 bg-red-100 border-red-300 rounded-lg text-red-900"><strong class="font-semibold">An Error Occurred:</strong><p class="mt-2">${error.message || 'Unknown error'}</p></div>`;
@@ -104,7 +175,15 @@
         }
 
         // --- File & Data Helpers ---
-        function readExcelFile(file) { /* Unchanged */ }
+        function readExcelFile(file) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = e => { try { const wb = XLSX.read(new Uint8Array(e.target.result), {type:'array'}); resolve(XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], {header:1})); } catch(err) {reject(err)} };
+                reader.onerror = e => reject(e);
+                reader.readAsArrayBuffer(file);
+            });
+        }
+        
         function downloadFile(content, fileName, mimeType) { /* Unchanged */ }
         function escapeXml(unsafe) { /* Unchanged */ }
 
@@ -114,132 +193,101 @@
             return String(value).trim().replace(/[\p{Sc},]/gu, '').toLowerCase();
         }
 
-        /**
-         * NEW: Creates a "fingerprint" from a row's data without needing headers.
-         * It finds the most likely amount, name, and ID/account number.
-         */
         function createRowFingerprint(row) {
             let amount = '', name = '', id = '';
-            // Find Amount: looks for a number with a decimal, or the largest number.
-            let potentialAmounts = row.map(cell => String(cell).replace(/,/g, '')).filter(cell => !isNaN(parseFloat(cell)) && isFinite(cell));
-            potentialAmounts.sort((a, b) => b.length - a.length);
-            if (potentialAmounts.length > 0) amount = parseFloat(potentialAmounts[0]).toFixed(2);
-
-            // Find Name: looks for the longest text-heavy cell.
-            let potentialNames = row.filter(cell => /[a-zA-Zក-ឡ]/.test(cell) && !/^\d/.test(cell)); // Contains letters, doesn't start with a digit
-            potentialNames.sort((a, b) => b.length - a.length);
-            if(potentialNames.length > 0) name = normalizeValue(potentialNames[0]).substring(0, 10); // First 10 chars of longest text
-
-            // Find ID: looks for a long number-heavy cell that isn't the amount.
-            let potentialIds = row.filter(cell => /\d/.test(cell) && parseFloat(String(cell).replace(/,/g, '')).toFixed(2) !== amount);
-            potentialIds.sort((a, b) => b.length - a.length);
-            if(potentialIds.length > 0) id = normalizeValue(potentialIds[0]);
-
-            if (!amount) return null; // A fingerprint is not valid without an amount.
-            return `${amount}|${name}|${id}`;
+            let potentialAmounts = row.map(c => String(c).replace(/,/g, '')).filter(c => !isNaN(parseFloat(c)) && isFinite(c));
+            if (potentialAmounts.length > 0) {
+                potentialAmounts.sort((a,b) => b.length - a.length);
+                amount = parseFloat(potentialAmounts[0]).toFixed(2);
+            }
+            let potentialNames = row.filter(c => /[a-zA-Zក-ឡ]/.test(c) && !/^\d/.test(c));
+            if(potentialNames.length > 0) {
+                potentialNames.sort((a, b) => b.length - a.length);
+                name = normalizeValue(potentialNames[0]).substring(0, 10);
+            }
+            if (!amount) return null;
+            return `${amount}|${name}`;
         }
         
-        async function runClientSideOcr(file, statusElId) { /* Unchanged from previous version */ }
-        function parseOcrTextToTable(text) { /* Unchanged from previous version */ }
+        async function runClientSideOcr(file, statusElId) {
+            const statusEl = document.getElementById(statusElId);
+            statusEl.textContent = 'Initializing OCR engine...';
+            const worker = await Tesseract.createWorker('eng+khm', 1, { logger: m => { if (m.status === 'recognizing text') statusEl.textContent = `Processing... (${(m.progress * 100).toFixed(0)}%)`; } });
+            const pdf = await pdfjsLib.getDocument(await file.arrayBuffer()).promise;
+            let fullText = '';
+            for (let i = 1; i <= pdf.numPages; i++) {
+                statusEl.textContent = `Reading page ${i} of ${pdf.numPages}...`;
+                const page = await pdf.getPage(i);
+                const viewport = page.getViewport({ scale: 2.0 });
+                const canvas = document.createElement('canvas');
+                canvas.height = viewport.height;
+                canvas.width = viewport.width;
+                await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
+                const { data: { text } } = await worker.recognize(canvas);
+                fullText += text + '\n';
+            }
+            await worker.terminate();
+            statusEl.textContent = 'OCR complete.';
+            return text.split('\n').filter(line => line.trim().length > 5).map(row => row.split(/\s{2,}/).map(cell => cell.trim()));
+        }
 
-        /**
-         * REWRITTEN: Main Verification Logic using Fingerprinting
-         */
+        // --- Main Feature Functions ---
         async function runVerification() {
             showLoader('verify-loader', 'ocr-status-verify');
             const resultsEl = document.getElementById('verify-results');
-            resultsEl.classList.add('hidden');
-            resultsEl.innerHTML = '';
-            
+            resultsEl.classList.add('hidden', 'fade-in');
             try {
-                // 1. Read Excel data
-                const allSoftDataArrays = await Promise.all(softFiles.map(file => readExcelFile(file)));
+                const allSoftData = await Promise.all(softFiles.map(readExcelFile));
                 let softRows = [];
-                allSoftDataArrays.forEach(data => {
-                    if (data && data.length > 1) softRows.push(...data.slice(1));
-                });
+                allSoftData.forEach(d => { if (d && d.length > 1) softRows.push(...d.slice(1)); });
                 if (softRows.length === 0) throw new Error("Excel files contain no data rows.");
-                const softHeaders = allSoftDataArrays.find(d => d.length > 0)?.[0] || [];
+                const softHeaders = allSoftData.find(d => d.length > 0)?.[0] || [];
 
-                // 2. Read PDF data using client-side OCR
-                const hardDataRaw = await runClientSideOcr(hardFile, 'ocr-status-verify');
-                if (!hardDataRaw || hardDataRaw.length === 0) throw new Error("OCR could not extract any data from the PDF.");
-                const hardRows = hardDataRaw.slice(1);
-                const hardHeaders = hardDataRaw[0] || [];
+                const hardRowsRaw = await runClientSideOcr(hardFile, 'ocr-status-verify');
+                if (!hardRowsRaw || hardRowsRaw.length === 0) throw new Error("OCR could not extract any data from the PDF.");
+                const hardRows = hardRowsRaw.slice(1);
 
-                // 3. Create fingerprint maps for both data sets
                 const softDataMap = new Map();
-                softRows.forEach(row => {
-                    const fingerprint = createRowFingerprint(row);
-                    if (fingerprint) softDataMap.set(fingerprint, { row, matched: false });
-                });
-
+                softRows.forEach(row => { const fp = createRowFingerprint(row); if (fp) softDataMap.set(fp, { row, matched: false }); });
                 const hardDataMap = new Map();
-                hardRows.forEach(row => {
-                    const fingerprint = createRowFingerprint(row);
-                    if (fingerprint) hardDataMap.set(fingerprint, { row, matched: false });
+                hardRows.forEach(row => { const fp = createRowFingerprint(row); if (fp) hardDataMap.set(fp, { row, matched: false }); });
+
+                const matches = [];
+                softDataMap.forEach((softItem, fp) => {
+                    if (hardDataMap.has(fp)) {
+                        matches.push({ type: 'match', soft: softItem.row, hard: hardDataMap.get(fp).row });
+                        softItem.matched = true;
+                        hardDataMap.get(fp).matched = true;
+                    }
                 });
 
-                // 4. Find matches
-                const matches = [];
-                for (const [fingerprint, softItem] of softDataMap.entries()) {
-                    if (hardDataMap.has(fingerprint)) {
-                        const hardItem = hardDataMap.get(fingerprint);
-                        matches.push({ type: 'match', soft: softItem.row, hard: hardItem.row });
-                        softItem.matched = true;
-                        hardItem.matched = true;
-                    }
-                }
-
-                // 5. Collect unmatched rows
                 const mismatches = [];
                 softDataMap.forEach(item => { if (!item.matched) mismatches.push({ type: 'missing_in_hard', data: item.row }); });
                 hardDataMap.forEach(item => { if (!item.matched) mismatches.push({ type: 'missing_in_soft', data: item.row }); });
 
-                // 6. Render results
                 let html = `<h3 class="text-xl font-bold mb-4">Comparison Results</h3>`;
                 const totalMismatches = mismatches.length;
-
-                if (totalMismatches === 0 && matches.length > 0) {
-                    html += `<p class="p-4 bg-green-100 text-green-800 rounded-md">✅ Found ${matches.length} matching records perfectly!</p>`;
-                } else {
-                    html += `<p class="text-lg font-semibold text-gray-800 mb-4">Found ${matches.length} ${matches.length === 1 ? 'match' : 'matches'} and <span class="text-red-600">${totalMismatches} ${totalMismatches === 1 ? 'mismatch' : 'mismatches'}</span>.</p>`;
-                }
+                if (totalMismatches === 0 && matches.length > 0) html += `<p class="p-4 bg-green-100 text-green-800 rounded-md">✅ Found ${matches.length} matching records perfectly!</p>`;
+                else html += `<p class="text-lg font-semibold mb-4">Found ${matches.length} matches and <span class="text-red-600">${totalMismatches} mismatches</span>.</p>`;
                 
-                html += `<div class="overflow-x-auto"><table class="w-full text-sm text-left">
-                    <thead class="bg-gray-100 text-gray-700"><tr>
-                        <th class="p-3">Source</th>${softHeaders.map(h => `<th class="p-3">${h}</th>`).join('')}
-                    </tr></thead><tbody>`;
-
-                // Display matched rows
-                matches.forEach(match => {
-                    html += `<tr class="border-b"><td class="p-3 font-medium">Excel</td>${match.soft.map(cell => `<td class="p-3">${cell}</td>`).join('')}</tr>`;
-                    // Attempt to align hard data columns with soft headers for display
-                    const reorderedHardRow = softHeaders.map((sh, i) => match.hard[i] || '');
-                    html += `<tr class="border-b"><td class="p-3 font-medium">PDF</td>${reorderedHardRow.map(cell => `<td class="p-3">${cell}</td>`).join('')}</tr>`;
+                html += `<div class="overflow-x-auto"><table class="w-full text-sm text-left"><thead class="bg-gray-100"><tr><th class="p-3">Source</th>${softHeaders.map(h => `<th class="p-3">${h}</th>`).join('')}</tr></thead><tbody>`;
+                matches.forEach(m => {
+                    html += `<tr class="border-b"><td class="p-3 font-medium">Excel</td>${m.soft.map(c => `<td class="p-3">${c}</td>`).join('')}</tr>`;
+                    html += `<tr class="border-b"><td class="p-3 font-medium">PDF</td>${softHeaders.map((sh, i) => m.hard[i] || '').map(c => `<td class="p-3">${c}</td>`).join('')}</tr>`;
                 });
-
-                // Display mismatched rows
-                mismatches.forEach(mismatch => {
-                    if (mismatch.type === 'missing_in_hard') {
-                        html += `<tr class="bg-yellow-50 border-b"><td class="p-3 font-medium text-yellow-700">Excel (Not in PDF)</td>${mismatch.data.map(cell => `<td class="p-3">${cell}</td>`).join('')}</tr>`;
-                    } else {
-                        const reorderedHardRow = softHeaders.map((sh, i) => mismatch.data[i] || '');
-                        html += `<tr class="bg-red-50 border-b"><td class="p-3 font-medium text-red-600">PDF (Not in Excel)</td>${reorderedHardRow.map(cell => `<td class="p-3">${cell}</td>`).join('')}</tr>`;
-                    }
+                mismatches.forEach(m => {
+                    if (m.type === 'missing_in_hard') html += `<tr class="bg-yellow-50 border-b"><td class="p-3 font-medium text-yellow-700">Excel (Not in PDF)</td>${m.data.map(c => `<td class="p-3">${c}</td>`).join('')}</tr>`;
+                    else html += `<tr class="bg-red-50 border-b"><td class="p-3 font-medium text-red-600">PDF (Not in Excel)</td>${softHeaders.map((sh, i) => m.data[i] || '').map(c => `<td class="p-3">${c}</td>`).join('')}</tr>`;
                 });
-
                 html += `</tbody></table></div>`;
                 resultsEl.innerHTML = html;
 
-            } catch(e) {
-                console.error(e);
-                displayError('verify-results', e);
-            } finally {
-                hideLoader('verify-loader');
-                resultsEl.classList.remove('hidden');
-            }
+            } catch(e) { displayError('verify-results', e); } 
+            finally { hideLoader('verify-loader'); resultsEl.classList.remove('hidden'); }
         }
+
+        async function runExtraction() { /* To be implemented if needed */ }
+        async function runConversion() { /* To be implemented if needed */ }
     </script>
 </body>
 </html>
