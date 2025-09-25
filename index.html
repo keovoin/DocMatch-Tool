@@ -325,52 +325,67 @@
                 const softHeaders = softData[0];
                 const hardHeaders = hardData[0];
                 
-                const keyColumns = {
+                const allKeyColumns = {
                     name: { aliases: ['beneficiaryname', 'payeename', 'receivername', 'name', 'ឈ្មោះ', 'ឈ្មោះអជ្ញាបណ្ណ'], softIndex: -1, hardIndex: -1, label: 'Name/ឈ្មោះ' },
                     account: { aliases: ['accountno', 'accountnumber', 'payeeaccountno', 'លេខគណនី'], softIndex: -1, hardIndex: -1, label: 'Account/លេខគណនី' },
                     bank: { aliases: ['bankname', 'payeebank', 'ឈ្មោះធនាគារ'], softIndex: -1, hardIndex: -1, label: 'Bank/ឈ្មោះធនាគារ' },
                     amount: { aliases: ['amount', 'ចំនួនទឹកប្រាក់', 'ទឹកប្រាក់'], softIndex: -1, hardIndex: -1, label: 'Amount/ទឹកប្រាក់' }
                 };
-
-                for (const key in keyColumns) {
-                    keyColumns[key].softIndex = findColumnIndex(softHeaders, keyColumns[key].aliases);
-                    keyColumns[key].hardIndex = findColumnIndex(hardHeaders, keyColumns[key].aliases);
-                    if (keyColumns[key].softIndex === -1) throw new Error(`Missing required column in Excel: ${keyColumns[key].label}`);
-                    if (keyColumns[key].hardIndex === -1) throw new Error(`Missing required column in PDF: ${keyColumns[key].label}`);
+                
+                const foundMatchingKeys = [];
+                const excludedMatchingKeys = [];
+                for (const key in allKeyColumns) {
+                    allKeyColumns[key].softIndex = findColumnIndex(softHeaders, allKeyColumns[key].aliases);
+                    allKeyColumns[key].hardIndex = findColumnIndex(hardHeaders, allKeyColumns[key].aliases);
+                    if (allKeyColumns[key].softIndex !== -1 && allKeyColumns[key].hardIndex !== -1) {
+                        foundMatchingKeys.push(key);
+                    } else {
+                        excludedMatchingKeys.push(allKeyColumns[key].label);
+                    }
                 }
 
-                const getCompositeKey = (row, indices) => {
-                    const name = String(row[indices.name] || '').trim().toLowerCase();
-                    const account = String(row[indices.account] || '').trim().replace(/\D/g, '');
-                    const bank = String(row[indices.bank] || '').trim().toLowerCase();
-                    const amount = normalizeAmount(row[indices.amount] || 0);
-                    return `${name}|${account}|${bank}|${amount.toFixed(2)}`;
+                // New minimum requirement check
+                if (!foundMatchingKeys.includes('account') || !foundMatchingKeys.includes('amount')) {
+                    throw new Error("Match Failed: Both files must contain identifiable 'Account' and 'Amount' columns.");
+                }
+
+                const getCompositeKey = (row, indices, keysToUse) => {
+                    let keyParts = [];
+                    if (keysToUse.includes('name')) keyParts.push(String(row[indices.name.softIndex] || '').trim().toLowerCase());
+                    if (keysToUse.includes('account')) keyParts.push(String(row[indices.account.softIndex] || '').trim().replace(/\D/g, ''));
+                    if (keysToUse.includes('bank')) keyParts.push(String(row[indices.bank.softIndex] || '').trim().toLowerCase());
+                    if (keysToUse.includes('amount')) keyParts.push(normalizeAmount(row[indices.amount.softIndex] || 0).toFixed(2));
+                    return keyParts.join('|');
+                };
+
+                const getCompositeKeyHard = (row, indices, keysToUse) => {
+                    let keyParts = [];
+                    if (keysToUse.includes('name')) keyParts.push(String(row[indices.name.hardIndex] || '').trim().toLowerCase());
+                    if (keysToUse.includes('account')) keyParts.push(String(row[indices.account.hardIndex] || '').trim().replace(/\D/g, ''));
+                    if (keysToUse.includes('bank')) keyParts.push(String(row[indices.bank.hardIndex] || '').trim().toLowerCase());
+                    if (keysToUse.includes('amount')) keyParts.push(normalizeAmount(row[indices.amount.hardIndex] || 0).toFixed(2));
+                    return keyParts.join('|');
                 };
                 
-                const softIndices = { name: keyColumns.name.softIndex, account: keyColumns.account.softIndex, bank: keyColumns.bank.softIndex, amount: keyColumns.amount.softIndex };
-                const hardIndices = { name: keyColumns.name.hardIndex, account: keyColumns.account.hardIndex, bank: keyColumns.bank.hardIndex, amount: keyColumns.amount.hardIndex };
-
-                // 3. Perform comparison using composite keys
+                // 3. Perform comparison using dynamic composite keys
                 const mismatches = [];
                 const softDataMap = new Map();
                 softData.slice(1).forEach(row => {
-                    const key = getCompositeKey(row, softIndices);
+                    const key = getCompositeKey(row, allKeyColumns, foundMatchingKeys);
                     if (!softDataMap.has(key)) softDataMap.set(key, []);
                     softDataMap.get(key).push(row);
                 });
 
                 hardData.slice(1).forEach((hardRow) => {
-                    const key = getCompositeKey(hardRow, hardIndices);
+                    const key = getCompositeKeyHard(hardRow, allKeyColumns, foundMatchingKeys);
                     const matchingSoftRows = softDataMap.get(key);
                     
                     if (!matchingSoftRows || matchingSoftRows.length === 0) {
                         mismatches.push({ type: 'missing_in_soft', data: hardRow, key });
                     } else {
-                        const softRow = matchingSoftRows.shift(); // Take the first match and remove it
-                        
+                        const softRow = matchingSoftRows.shift();
                         const softHeaderMap = new Map(softHeaders.map((h, i) => [h.trim().toLowerCase().replace(/\s/g, ''), i]));
                         const hardHeaderMap = new Map(hardHeaders.map((h, i) => [h.trim().toLowerCase().replace(/\s/g, ''), i]));
-                        
                         const mismatchDetails = {};
                         softHeaders.forEach(header => {
                             const headerKey = header.trim().toLowerCase().replace(/\s/g, '');
@@ -391,14 +406,20 @@
                     }
                 });
 
-                softDataMap.forEach((rows, key) => {
+                softDataMap.forEach((rows) => {
                     rows.forEach(row => {
-                        mismatches.push({ type: 'missing_in_hard', data: row, key });
+                        mismatches.push({ type: 'missing_in_hard', data: row, key: getCompositeKey(row, allKeyColumns, foundMatchingKeys) });
                     });
                 });
 
                 // 4. Render results
                 let html = `<h3 class="text-xl font-bold mb-4">Comparison Results</h3>`;
+                if(excludedMatchingKeys.length > 0){
+                    html += `<div class="p-3 mb-4 bg-yellow-50 border border-yellow-200 rounded-lg text-yellow-800 text-sm">
+                        <strong>Notice:</strong> The following columns were not found in both files and were excluded from the matching logic: <strong>${excludedMatchingKeys.join(', ')}</strong>.
+                    </div>`;
+                }
+                
                 if (mismatches.length === 0) {
                     html += `<p class="p-4 bg-green-100 text-green-800 rounded-md">✅ All records match perfectly!</p>`;
                 } else {
@@ -415,12 +436,12 @@
                             matchIndex++;
                             const getSoftVal = (h) => m.soft[softHeaderMap.get(h.trim().toLowerCase().replace(/\s/g, ''))];
                             const getHardVal = (h) => m.hard[hardHeaderMap.get(h.trim().toLowerCase().replace(/\s/g, ''))];
-                            html += `<tr class="mismatch-row border-t"><td class="p-3 font-medium">Excel (Match ${matchIndex})</td>${softHeaders.map(h => `<td class="p-3 ${m.details[h] ? 'mismatch-cell' : ''}">${m.details[h]?.soft ?? getSoftVal(h)}</td>`).join('')}</tr>`;
-                            html += `<tr class="mismatch-row border-b"><td class="p-3 font-medium">PDF (Match ${matchIndex})</td>${softHeaders.map(h => `<td class="p-3 ${m.details[h] ? 'mismatch-cell' : ''}">${m.details[h]?.hard ?? getHardVal(h)}</td>`).join('')}</tr>`;
+                            html += `<tr class="mismatch-row border-t"><td class="p-3 font-medium">Excel (Match ${matchIndex})</td>${softHeaders.map(h => `<td class="p-3 ${m.details[h] ? 'mismatch-cell' : ''}">${escapeXml(m.details[h]?.soft ?? getSoftVal(h))}</td>`).join('')}</tr>`;
+                            html += `<tr class="mismatch-row border-b"><td class="p-3 font-medium">PDF (Match ${matchIndex})</td>${softHeaders.map(h => `<td class="p-3 ${m.details[h] ? 'mismatch-cell' : ''}">${escapeXml(m.details[h]?.hard ?? getHardVal(h))}</td>`).join('')}</tr>`;
                         } else if (m.type === 'missing_in_soft') {
-                             html += `<tr class="bg-red-50 border-b"><td class="p-3 font-medium text-red-600">PDF Only</td>${softHeaders.map(h => `<td class="p-3">${m.data[hardHeaderMap.get(h.trim().toLowerCase().replace(/\s/g, ''))] ?? ''}</td>`).join('')}</tr>`;
+                             html += `<tr class="bg-red-50 border-b"><td class="p-3 font-medium text-red-600">PDF Only</td>${softHeaders.map(h => `<td class="p-3">${escapeXml(m.data[hardHeaderMap.get(h.trim().toLowerCase().replace(/\s/g, ''))] ?? '')}</td>`).join('')}</tr>`;
                         } else if (m.type === 'missing_in_hard') {
-                            html += `<tr class="bg-yellow-50 border-b"><td class="p-3 font-medium text-yellow-700">Excel Only</td>${m.data.map(cell => `<td class="p-3">${cell}</td>`).join('')}</tr>`;
+                            html += `<tr class="bg-yellow-50 border-b"><td class="p-3 font-medium text-yellow-700">Excel Only</td>${m.data.map(cell => `<td class="p-3">${escapeXml(cell)}</td>`).join('')}</tr>`;
                         }
                     });
                     html += `</tbody></table></div>`;
