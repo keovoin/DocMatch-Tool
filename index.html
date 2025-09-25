@@ -307,7 +307,6 @@
                     if (index === 0) combinedHardDataRaw.push(...data);
                     else combinedHardDataRaw.push(...data.slice(1));
                 });
-                console.log("Gemini response for PDF:", response);
                 if (combinedHardDataRaw.length < 2) throw new Error("AI could not extract valid tables from the provided PDF(s).");
         
                 // 3. Prepare headers and rows
