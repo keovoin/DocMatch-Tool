@@ -4,13 +4,12 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>DocMatch - Client-Side OCR Tool</title>
+    
     <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-    <script src='https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js'></script>
-    <script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@4.3.136/build/pdf.min.js"></script>
-    <script>
-        pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdn.jsdelivr.net/npm/pdfjs-dist@4.3.136/build/pdf.worker.min.js`;
-    </script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js" defer></script>
+    <script src='https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js' defer></script>
+    <script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@4.3.136/build/pdf.min.js" defer></script>
+    
     <style>
         body { font-family: 'Inter', sans-serif; }
         .tab-active { border-color: #3b82f6; color: #3b82f6; }
@@ -68,8 +67,7 @@
                     <button id="verify-btn" onclick="runVerification()" class="bg-green-600 text-white px-6 py-3 rounded-lg hover:bg-green-700 font-semibold disabled:bg-gray-400" disabled>Compare Files</button>
                 </div>
                 <div id="verify-loader" class="hidden justify-center items-center py-6 flex-col space-y-2">
-                    <div class="loader"></div>
-                    <p id="ocr-status-verify" class="text-sm text-gray-600"></p>
+                    <div class="loader"></div><p id="ocr-status-verify" class="text-sm text-gray-600"></p>
                 </div>
                 <div id="verify-results" class="hidden bg-white p-6 rounded-lg shadow-sm fade-in"></div>
             </div>
@@ -85,8 +83,7 @@
                     <button id="extract-btn" onclick="runExtraction()" class="bg-green-600 text-white px-6 py-3 rounded-lg hover:bg-green-700 font-semibold disabled:bg-gray-400" disabled>Extract Table</button>
                 </div>
                 <div id="extract-loader" class="hidden justify-center items-center py-6 flex-col space-y-2">
-                    <div class="loader"></div>
-                    <p id="ocr-status-extract" class="text-sm text-gray-600"></p>
+                    <div class="loader"></div><p id="ocr-status-extract" class="text-sm text-gray-600"></p>
                 </div>
                 <div id="extract-results" class="hidden bg-white p-6 rounded-lg shadow-sm fade-in"></div>
             </div>
@@ -107,11 +104,15 @@
         </main>
     </div>
 
-    <script>
+    <script defer>
         // --- Global State & Setup ---
         let softFiles = [], hardFile = null, extractFile = null, convertFile = null;
-
+        
         document.addEventListener('DOMContentLoaded', () => {
+            // Set PDF.js worker path
+            pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdn.jsdelivr.net/npm/pdfjs-dist@4.3.136/build/pdf.worker.min.js`;
+            
+            // Setup all interactive elements
             setupDropZone('verify-soft-drop-zone', 'verify-soft-input', (files) => softFiles = files, 'verify-soft-filenames', true);
             setupDropZone('verify-hard-drop-zone', 'verify-hard-input', (file) => hardFile = file, 'verify-hard-filename', false);
             setupDropZone('extract-drop-zone', 'extract-input', (file) => extractFile = file, 'extract-filename', false);
@@ -134,7 +135,7 @@
             const filenameEl = document.getElementById(filenameId);
             const handler = (files) => {
                 if (files.length > 0) {
-                    fileInput.files = files;
+                    fileInput.files = files; // Sync the input element
                     handleFileChange(files, fileSetter, filenameEl, isMultiple);
                 }
             };
@@ -165,9 +166,8 @@
             document.getElementById(loaderId).style.display = 'flex';
             if (statusElId) document.getElementById(statusElId).textContent = message;
         }
-
         function hideLoader(loaderId) { document.getElementById(loaderId).style.display = 'none'; }
-
+        
         function displayError(resultsId, error) {
             const el = document.getElementById(resultsId);
             el.innerHTML = `<div class="p-4 bg-red-100 border-red-300 rounded-lg text-red-900"><strong class="font-semibold">An Error Occurred:</strong><p class="mt-2">${error.message || 'Unknown error'}</p></div>`;
@@ -178,14 +178,20 @@
         function readExcelFile(file) {
             return new Promise((resolve, reject) => {
                 const reader = new FileReader();
-                reader.onload = e => { try { const wb = XLSX.read(new Uint8Array(e.target.result), {type:'array'}); resolve(XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], {header:1})); } catch(err) {reject(err)} };
+                reader.onload = e => { try { const wb = XLSX.read(new Uint8Array(e.target.result), {type:'array'}); resolve(XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], {header:1, blankrows: false})); } catch(err) {reject(err)} };
                 reader.onerror = e => reject(e);
                 reader.readAsArrayBuffer(file);
             });
         }
         
-        function downloadFile(content, fileName, mimeType) { /* Unchanged */ }
-        function escapeXml(unsafe) { /* Unchanged */ }
+        function escapeXml(unsafe) { return String(unsafe).replace(/[<>&'"]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;','\'':'&apos;','"':'&quot;'}[c])); }
+        function downloadFile(content, fileName, mimeType) {
+            const blob = new Blob([content], { type: mimeType });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url; a.download = fileName; document.body.appendChild(a); a.click(); document.body.removeChild(a);
+            setTimeout(() => URL.revokeObjectURL(url), 100); 
+        }
 
         // --- OCR and Comparison Logic ---
         function normalizeValue(value) {
@@ -194,7 +200,7 @@
         }
 
         function createRowFingerprint(row) {
-            let amount = '', name = '', id = '';
+            let amount = '', name = '';
             let potentialAmounts = row.map(c => String(c).replace(/,/g, '')).filter(c => !isNaN(parseFloat(c)) && isFinite(c));
             if (potentialAmounts.length > 0) {
                 potentialAmounts.sort((a,b) => b.length - a.length);
@@ -228,7 +234,7 @@
             }
             await worker.terminate();
             statusEl.textContent = 'OCR complete.';
-            return text.split('\n').filter(line => line.trim().length > 5).map(row => row.split(/\s{2,}/).map(cell => cell.trim()));
+            return fullText.split('\n').filter(line => line.trim().length > 5).map(row => row.split(/\s{2,}/).map(cell => cell.trim()));
         }
 
         // --- Main Feature Functions ---
@@ -264,7 +270,7 @@
                 const mismatches = [];
                 softDataMap.forEach(item => { if (!item.matched) mismatches.push({ type: 'missing_in_hard', data: item.row }); });
                 hardDataMap.forEach(item => { if (!item.matched) mismatches.push({ type: 'missing_in_soft', data: item.row }); });
-
+                
                 let html = `<h3 class="text-xl font-bold mb-4">Comparison Results</h3>`;
                 const totalMismatches = mismatches.length;
                 if (totalMismatches === 0 && matches.length > 0) html += `<p class="p-4 bg-green-100 text-green-800 rounded-md">✅ Found ${matches.length} matching records perfectly!</p>`;
@@ -286,8 +292,52 @@
             finally { hideLoader('verify-loader'); resultsEl.classList.remove('hidden'); }
         }
 
-        async function runExtraction() { /* To be implemented if needed */ }
-        async function runConversion() { /* To be implemented if needed */ }
+        async function runExtraction() {
+            showLoader('extract-loader', 'ocr-status-extract');
+            const resultsEl = document.getElementById('extract-results');
+            resultsEl.classList.add('hidden');
+            try {
+                const tableData = await runClientSideOcr(extractFile, 'ocr-status-extract');
+                if (!tableData || tableData.length === 0) throw new Error("OCR could not find a usable table in the document.");
+
+                const headers = tableData[0];
+                const rows = tableData.slice(1);
+                
+                const worksheet = XLSX.utils.aoa_to_sheet([headers, ...rows]);
+                const workbook = XLSX.utils.book_new();
+                XLSX.utils.book_append_sheet(workbook, worksheet, "ExtractedData");
+                const excelBlob = new Blob([XLSX.write(workbook, { bookType: 'xlsx', type: 'array' })]);
+                const jsonString = JSON.stringify(rows.map(row => headers.reduce((obj, h, i) => ({...obj, [h]: row[i]}), {})), null, 2);
+
+                resultsEl.innerHTML = `<h3 class="text-xl font-bold mb-4">Extracted Table Preview</h3><div class="flex space-x-4 mb-4"><button id="download-excel-btn" class="bg-green-600 text-white px-4 py-2 rounded-md hover:bg-green-700">Download as Excel</button><button id="download-json-btn" class="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700">Download as JSON</button></div><div class="overflow-x-auto"><table class="w-full text-sm text-left"><thead class="bg-gray-100"><tr>${headers.map(h => `<th class="p-3">${h}</th>`).join('')}</tr></thead><tbody>${rows.map(row => `<tr>${row.map(cell => `<td class="p-3 border-b">${cell}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
+                document.getElementById('download-excel-btn').onclick = () => downloadFile(excelBlob, 'extracted-table.xlsx');
+                document.getElementById('download-json-btn').onclick = () => downloadFile(jsonString, 'extracted-table.json', 'application/json');
+            } catch(e) { displayError('extract-results', e); } 
+            finally { hideLoader('extract-loader'); resultsEl.classList.remove('hidden'); }
+        }
+        
+        async function runConversion() {
+            showLoader('convert-loader');
+            const resultsEl = document.getElementById('convert-results');
+            resultsEl.classList.add('hidden');
+            try {
+                const dataRaw = await readExcelFile(convertFile);
+                if (!dataRaw || dataRaw.length < 2) throw new Error("Excel file is empty or has no data rows.");
+                const data = dataRaw.map(row => row.map(cell => String(cell ?? '').trim()));
+                const fileHeaders = data[0];
+                const rows = data.slice(1);
+                const requiredFields = ["PaymentTypeCode", "SerialNo", "PaymentDate", "PayerBank", "PayerCheckDigit", "PayerAccountNo", "CurrencyCode", "Amount", "SecurityCode", "PayerName", "PayerRef", "PayeeBank", "PayeeCheckDigit", "PayeeAccountNo", "PayeeName", "PayeeRef", "ReturnCode", "InputDate", "ProcessingDate", "InputBatchNo", "OutputBatchNo"];
+                const fileHeaderMap = new Map(fileHeaders.map((h, i) => [h.toLowerCase(), i]));
+                const xmlPayments = rows.map(row => `  <Payment>${requiredFields.map(field => `<${field}>${escapeXml(row[fileHeaderMap.get(field.toLowerCase())] ?? '')}</${field}>`).join('')}</Payment>`).join('\n');
+                const finalXml = `<?xml version="1.0" encoding="UTF-8"?>\n<SDRFile>\n${xmlPayments}\n</SDRFile>`;
+                const xmlBlob = new Blob([finalXml], { type: 'application/xml' });
+                const sourcePreviewHtml = `<div class="overflow-x-auto h-96 border rounded-lg"><table class="w-full text-sm text-left"><thead class="bg-gray-100 sticky top-0"><tr>${fileHeaders.map(h => `<th class="p-2 font-medium">${h}</th>`).join('')}</tr></thead><tbody>${rows.map(row => `<tr>${row.map(cell => `<td class="p-2 border-t">${escapeXml(cell)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
+                const xmlPreviewHtml = `<pre class="bg-gray-900 text-white p-4 rounded-lg text-sm overflow-auto h-96"><code>${escapeXml(finalXml)}</code></pre>`;
+                resultsEl.innerHTML = `<h3 class="text-xl font-bold mb-4">Conversion Preview</h3><div class="flex justify-end mb-4"><button id="download-xml-btn" class="bg-green-600 text-white px-4 py-2 rounded-md hover:bg-green-700">Download XML</button></div><div class="grid grid-cols-1 lg:grid-cols-2 gap-6"><div><h4 class="font-semibold mb-2">Source Data</h4>${sourcePreviewHtml}</div><div><h4 class="font-semibold mb-2">Generated XML</h4>${xmlPreviewHtml}</div></div>`;
+                document.getElementById('download-xml-btn').onclick = () => downloadFile(xmlBlob, 'SDRFile.xml');
+            } catch(e) { displayError('convert-results', e); } 
+            finally { hideLoader('convert-loader'); resultsEl.classList.remove('hidden'); }
+        }
     </script>
 </body>
 </html>
