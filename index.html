@@ -16,7 +16,7 @@
         .mismatch-row { background-color: #fee2e2; }
         .mismatch-cell { font-weight: bold; color: #dc2626; }
         .fade-in { animation: fadeIn 0.5s ease-in-out; }
-        @keyframes fadeIn { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; translateY(0); } }
     </style>
      <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -66,208 +66,36 @@
                 <div id="verify-results" class="hidden bg-white p-6 rounded-lg shadow-sm fade-in"></div>
             </div>
 
-            <div id="extract-content" class="hidden space-y-6">...</div>
-            <div id="convert-content" class="hidden space-y-6">...</div>
+            <div id="extract-content" class="hidden space-y-6">
+                 <div id="extract-drop-zone" class="drop-zone p-6 rounded-lg bg-white shadow-sm text-center">
+                    <h3 class="font-semibold text-lg mb-2">Upload Scanned PDF for Table Extraction</h3>
+                    <input type="file" id="extract-input" class="hidden" accept=".pdf">
+                    <button onclick="document.getElementById('extract-input').click()" class="bg-blue-500 text-white px-4 py-2 rounded-md hover:bg-blue-600">Browse File</button>
+                    <p id="extract-filename" class="mt-4 text-sm text-gray-600"></p>
+                </div>
+                 <div class="text-center">
+                    <button id="extract-btn" onclick="runExtraction()" class="bg-green-600 text-white px-6 py-3 rounded-lg hover:bg-green-700 font-semibold disabled:bg-gray-400" disabled>Extract Table</button>
+                </div>
+                <div id="extract-loader" class="hidden justify-center items-center py-6"><div class="loader"></div></div>
+                <div id="extract-results" class="hidden bg-white p-6 rounded-lg shadow-sm fade-in"></div>
+            </div>
+
+            <div id="convert-content" class="hidden space-y-6">
+                <div id="convert-drop-zone" class="drop-zone p-6 rounded-lg bg-white shadow-sm text-center">
+                    <h3 class="font-semibold text-lg mb-2">Upload Excel File for XML Conversion</h3>
+                    <input type="file" id="convert-input" class="hidden" accept=".xlsx, .xls">
+                    <button onclick="document.getElementById('convert-input').click()" class="bg-blue-500 text-white px-4 py-2 rounded-md hover:bg-blue-600">Browse File</button>
+                    <p id="convert-filename" class="mt-4 text-sm text-gray-600"></p>
+                </div>
+                 <div class="text-center">
+                    <button id="convert-btn" onclick="runConversion()" class="bg-green-600 text-white px-6 py-3 rounded-lg hover:bg-green-700 font-semibold disabled:bg-gray-400" disabled>Convert to XML</button>
+                </div>
+                <div id="convert-loader" class="hidden justify-center items-center py-6"><div class="loader"></div></div>
+                <div id="convert-results" class="hidden bg-white p-6 rounded-lg shadow-sm fade-in"></div>
+            </div>
         </main>
     </div>
 
-    <script>
-        // --- Global State & Setup (Shortened for brevity, no changes) ---
-        let softFiles = [], hardFile = null, extractFile = null, convertFile = null;
-        function switchTab(tab) { /* ... no changes ... */ }
-        function setupDropZone(id, inputId, setter, nameId, isMultiple) { /* ... no changes ... */ }
-        function handleFileChange(files, setter, nameEl, isMultiple) { /* ... no changes ... */ }
-        function checkAllFilesAndEnableButtons() { /* ... no changes ... */ }
-        document.addEventListener('DOMContentLoaded', () => {
-            // Full setup is in the hidden code block, no changes needed
-        });
-        
-        // --- Comparison & Helper Functions (No changes) ---
-        function normalizeAmountToNumber(value) {
-            if (value === undefined || value === null) return NaN;
-            return parseFloat(String(value).trim().replace(/,/g, ''));
-        }
-        function areValuesEqual(valA, valB) {
-            const cleanA = String(valA || '').trim();
-            const cleanB = String(valB || '').trim();
-            const numA = normalizeAmountToNumber(cleanA);
-            const numB = normalizeAmountToNumber(cleanB);
-            if (!isNaN(numA) && !isNaN(numB)) {
-                return Math.abs(numA - numB) < 0.001;
-            }
-            return cleanA.toLowerCase() === cleanB.toLowerCase();
-        }
-
-        // --- File & AI Functions (Shortened for brevity, no changes) ---
-        async function callGeminiOcr(file, prompt) { /* ... no changes ... */ }
-        function fileToBase64(file) { /* ... no changes ... */ }
-        function readExcelFile(file) { /* ... no changes ... */ }
-        function downloadFile(content, fileName, mimeType) { /* ... no changes ... */ }
-        function showLoader(loaderId) { /* ... no changes ... */ }
-        function hideLoader(loaderId) { /* ... no changes ... */ }
-        function displayError(resultsId, error) { /* ... no changes ... */ }
-        
-        // --- ★★★ FULLY REVISED VERIFICATION LOGIC ★★★ ---
-        async function runVerification() {
-            showLoader('verify-loader');
-            const resultsEl = document.getElementById('verify-results');
-            resultsEl.classList.add('hidden');
-            resultsEl.innerHTML = '';
-
-            try {
-                // 1. Load Excel and PDF data
-                if (softFiles.length === 0) throw new Error("Please upload at least one Excel file.");
-                const allSoftDataArrays = await Promise.all(softFiles.map(file => readExcelFile(file)));
-                let softData = [];
-                allSoftDataArrays.forEach(data => {
-                    if (data && data.length > 0) {
-                        if (softData.length === 0) softData.push(...data);
-                        else softData.push(...data.slice(1));
-                    }
-                });
-                if (softData.length < 2) throw new Error("Excel files are empty or contain no data rows.");
-
-                const prompt = `Analyze this document. Extract all transaction tables and combine them into one table with one header row. Return as a JSON object: {"table_data": [["Header1"], ["Row1Cell1"]]}.`;
-                const hardDataResponse = await callGeminiOcr(hardFile, prompt);
-                const hardData = hardDataResponse.table_data;
-                if (!hardData || hardData.length < 2) throw new Error("AI could not extract a data table from the PDF.");
-
-                // 2. Prepare for smart matching
-                const masterHeaders = softData[0].map(h => String(h || '').trim());
-                const softHeadersLower = masterHeaders.map(h => h.toLowerCase());
-                const hardHeadersLower = hardData[0].map(h => String(h || '').trim().toLowerCase());
-                const hardHeaderMap = new Map(hardHeadersLower.map((h, i) => [h, i]));
-
-                // 3. FLEXIBLE ROW MATCHING: Try to find a key, otherwise fallback to row index
-                const findKeyIndex = (headers) => {
-                    const potentialKeys = ['serialno', 'serial no', 's/n'];
-                    for (const key of potentialKeys) {
-                        const index = headers.findIndex(h => h.includes(key));
-                        if (index !== -1) return index;
-                    }
-                    const noIndex = headers.findIndex(h => h === 'no' || h === 'ល.រ' || h === 'លេខរៀង');
-                    return noIndex;
-                };
-
-                const softKeyIndex = findKeyIndex(softHeadersLower);
-                const hardKeyIndex = findKeyIndex(hardHeadersLower);
-
-                let results = [];
-                let comparisonMethod = 'Row Order';
-
-                // --- STRATEGY 1: KEY-BASED MATCHING (IDEAL) ---
-                if (softKeyIndex !== -1 && hardKeyIndex !== -1) {
-                    comparisonMethod = `Column "${masterHeaders[softKeyIndex]}"`;
-                    const hardDataMap = new Map(hardData.slice(1).map(row => [String(row[hardKeyIndex] || '').trim(), row]));
-                    
-                    softData.slice(1).forEach(softRow => {
-                        const key = String(softRow[softKeyIndex] || '').trim();
-                        const hardRow = hardDataMap.get(key);
-                        results.push({ key: key, soft: softRow, hard: hardRow });
-                        if (hardRow) hardDataMap.delete(key);
-                    });
-
-                    hardDataMap.forEach((hardRow, key) => {
-                        results.push({ key: key, soft: null, hard: hardRow });
-                    });
-                } 
-                // --- STRATEGY 2: ROW ORDER MATCHING (FALLBACK) ---
-                else {
-                    const numRows = Math.max(softData.length - 1, hardData.length - 1);
-                    for (let i = 0; i < numRows; i++) {
-                        const softRow = softData[i + 1] || null;
-                        const hardRow = hardData[i + 1] || null;
-                        results.push({ key: `Row ${i+1}`, soft: softRow, hard: hardRow });
-                    }
-                }
-
-                // 4. Analyze results and prepare for rendering
-                let finalResults = [];
-                results.forEach(res => {
-                    if (!res.soft) {
-                        res.status = 'missing_in_soft'; // In PDF only
-                    } else if (!res.hard) {
-                        res.status = 'missing_in_hard'; // In Excel only
-                    } else {
-                        res.details = {};
-                        let isMismatch = false;
-                        masterHeaders.forEach((header, i) => {
-                            const softValue = res.soft[i];
-                            const hardColIndex = hardHeaderMap.get(header.toLowerCase());
-                            const hardValue = (hardColIndex !== undefined) ? res.hard[hardColIndex] : '';
-                            if (!areValuesEqual(softValue, hardValue)) {
-                                isMismatch = true;
-                                res.details[i] = { soft: softValue, hard: hardValue };
-                            }
-                        });
-                        res.status = isMismatch ? 'mismatch' : 'match';
-                    }
-                    finalResults.push(res);
-                });
-                
-                // 5. Render the table
-                const mismatches = finalResults.filter(r => r.status !== 'match');
-                let html = `<div class="flex justify-between items-center mb-4">
-                                <h3 class="text-xl font-bold">Comparison Results</h3>
-                                <span class="text-sm text-gray-500">Matching by: <strong>${comparisonMethod}</strong></span>
-                            </div>`;
-
-                if (mismatches.length === 0) {
-                    html += `<p class="p-4 bg-green-100 text-green-800 rounded-md">✅ All ${finalResults.length} records match perfectly!</p>`;
-                } else {
-                    html += `<p class="text-lg font-semibold text-red-600 mb-4">${mismatches.length} ${mismatches.length > 1 ? 'discrepancies' : 'discrepancy'} found.</p>`;
-                    html += `<div class="overflow-x-auto"><table class="w-full text-sm text-left">
-                        <thead class="bg-gray-100 text-gray-700"><tr>
-                            <th class="p-3">Source</th>
-                            ${masterHeaders.map(h => `<th class="p-3">${h}</th>`).join('')}
-                        </tr></thead><tbody>`;
-
-                    finalResults.forEach(res => {
-                        if (res.status === 'match') return; // Hide perfect matches in mismatch view
-
-                        const renderRow = (source, rowData, details = {}) => {
-                            let rowHtml = `<tr><td class="p-3 font-medium">${source}</td>`;
-                            masterHeaders.forEach((header, i) => {
-                                const lowerHeader = header.toLowerCase();
-                                const colIndex = (source === 'Excel') ? i : hardHeaderMap.get(lowerHeader);
-                                const cellValue = (rowData && colIndex !== undefined) ? rowData[colIndex] : '';
-                                rowHtml += `<td class="p-3 ${details[i] ? 'mismatch-cell' : ''}">${escapeXml(cellValue)}</td>`;
-                            });
-                            return rowHtml + `</tr>`;
-                        };
-
-                        if (res.status === 'mismatch') {
-                            html += `<tr class="mismatch-row border-b">${renderRow('Excel', res.soft, res.details).substring(4)}`;
-                            html += `<tr class="mismatch-row border-b">${renderRow('PDF', res.hard, res.details).substring(4)}`;
-                        } else if (res.status === 'missing_in_hard') {
-                            html += `<tr class="bg-yellow-50 border-b">${renderRow('Excel (Not in PDF)', res.soft).substring(4)}`;
-                        } else if (res.status === 'missing_in_soft') {
-                            html += `<tr class="bg-red-50 border-b">${renderRow('PDF (Not in Excel)', res.hard).substring(4)}`;
-                        }
-                    });
-                    html += `</tbody></table></div>`;
-                }
-                resultsEl.innerHTML = html;
-
-            } catch (e) {
-                console.error(e);
-                displayError('verify-results', e);
-            } finally {
-                hideLoader('verify-loader');
-                resultsEl.classList.remove('hidden');
-            }
-        }
-        
-        // This function is needed for rendering
-        function escapeXml(unsafe) {
-            return String(unsafe || '').replace(/[<>&'"]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;','\'':'&apos;','"':'&quot;'}[c]));
-        }
-
-        // --- Other Tab Functions (runExtraction, runConversion) ---
-        // These functions are unchanged and are hidden here for brevity.
-        // The full code block below will contain them.
-    </script>
-    
     <script>
         // --- Global State ---
         let softFiles = [], hardFile = null, extractFile = null, convertFile = null;
@@ -276,25 +104,16 @@
         function switchTab(tab) {
             const contents = ['verify-content', 'extract-content', 'convert-content'];
             const tabs = ['tab-verify', 'tab-extract', 'tab-convert'];
-            contents.forEach(id => {
-                const el = document.getElementById(id);
-                if (el) el.classList.add('hidden');
-            });
-            tabs.forEach(id => {
-                const el = document.getElementById(id);
-                if (el) el.classList.remove('tab-active');
-            });
-            const contentEl = document.getElementById(`${tab}-content`);
-            if (contentEl) contentEl.classList.remove('hidden');
-            const tabEl = document.getElementById(`tab-${tab}`);
-            if (tabEl) tabEl.classList.add('tab-active');
+            contents.forEach(id => document.getElementById(id).classList.add('hidden'));
+            tabs.forEach(id => document.getElementById(id).classList.remove('tab-active'));
+            document.getElementById(`${tab}-content`).classList.remove('hidden');
+            document.getElementById(`tab-${tab}`).classList.add('tab-active');
         }
 
         function setupDropZone(dropZoneId, inputId, fileStateSetter, filenameId, isMultiple = false) {
             const dropZone = document.getElementById(dropZoneId);
             const fileInput = document.getElementById(inputId);
             const filenameEl = document.getElementById(filenameId);
-            if (!dropZone || !fileInput || !filenameEl) return;
             const updateFn = (files) => handleFileChange(files, fileStateSetter, filenameEl, isMultiple);
             dropZone.addEventListener('dragover', (e) => { e.preventDefault(); dropZone.classList.add('drag-over'); });
             dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
@@ -323,11 +142,16 @@
 
         function checkAllFilesAndEnableButtons() {
             document.getElementById('verify-btn').disabled = !(softFiles.length > 0 && hardFile);
-            const extractBtn = document.getElementById('extract-btn');
-            if (extractBtn) extractBtn.disabled = !extractFile;
-            const convertBtn = document.getElementById('convert-btn');
-            if(convertBtn) convertBtn.disabled = !convertFile;
+            document.getElementById('extract-btn').disabled = !extractFile;
+            document.getElementById('convert-btn').disabled = !convertFile;
         }
+        
+        document.addEventListener('DOMContentLoaded', () => {
+            setupDropZone('verify-soft-drop-zone', 'verify-soft-input', (files) => softFiles = files, 'verify-soft-filenames', true);
+            setupDropZone('verify-hard-drop-zone', 'verify-hard-input', (file) => hardFile = file, 'verify-hard-filename', false);
+            setupDropZone('extract-drop-zone', 'extract-input', (file) => extractFile = file, 'extract-filename', false);
+            setupDropZone('convert-drop-zone', 'convert-input', (file) => convertFile = file, 'convert-filename', false);
+        });
 
         // --- Comparison & Helper Functions ---
         function normalizeAmountToNumber(value) {
@@ -345,41 +169,6 @@
             }
             return cleanA.toLowerCase() === cleanB.toLowerCase();
         }
-        
-        document.addEventListener('DOMContentLoaded', () => {
-            setupDropZone('verify-soft-drop-zone', 'verify-soft-input', (files) => softFiles = files, 'verify-soft-filenames', true);
-            setupDropZone('verify-hard-drop-zone', 'verify-hard-input', (file) => hardFile = file, 'verify-hard-filename');
-            const extractContent = document.getElementById('extract-content');
-            if (extractContent.innerHTML.includes('...')) {
-                 extractContent.innerHTML = `<div id="extract-drop-zone" class="drop-zone p-6 rounded-lg bg-white shadow-sm text-center">
-                    <h3 class="font-semibold text-lg mb-2">Upload Scanned PDF for Table Extraction</h3>
-                    <input type="file" id="extract-input" class="hidden" accept=".pdf">
-                    <button onclick="document.getElementById('extract-input').click()" class="bg-blue-500 text-white px-4 py-2 rounded-md hover:bg-blue-600">Browse File</button>
-                    <p id="extract-filename" class="mt-4 text-sm text-gray-600"></p>
-                </div>
-                 <div class="text-center">
-                    <button id="extract-btn" onclick="runExtraction()" class="bg-green-600 text-white px-6 py-3 rounded-lg hover:bg-green-700 font-semibold disabled:bg-gray-400" disabled>Extract Table</button>
-                </div>
-                <div id="extract-loader" class="hidden justify-center items-center py-6"><div class="loader"></div></div>
-                <div id="extract-results" class="hidden bg-white p-6 rounded-lg shadow-sm fade-in"></div>`;
-                setupDropZone('extract-drop-zone', 'extract-input', (file) => extractFile = file, 'extract-filename');
-            }
-             const convertContent = document.getElementById('convert-content');
-            if (convertContent.innerHTML.includes('...')) {
-                convertContent.innerHTML = `<div id="convert-drop-zone" class="drop-zone p-6 rounded-lg bg-white shadow-sm text-center">
-                    <h3 class="font-semibold text-lg mb-2">Upload Excel File for XML Conversion</h3>
-                    <input type="file" id="convert-input" class="hidden" accept=".xlsx, .xls">
-                    <button onclick="document.getElementById('convert-input').click()" class="bg-blue-500 text-white px-4 py-2 rounded-md hover:bg-blue-600">Browse File</button>
-                    <p id="convert-filename" class="mt-4 text-sm text-gray-600"></p>
-                </div>
-                 <div class="text-center">
-                    <button id="convert-btn" onclick="runConversion()" class="bg-green-600 text-white px-6 py-3 rounded-lg hover:bg-green-700 font-semibold disabled:bg-gray-400" disabled>Convert to XML</button>
-                </div>
-                <div id="convert-loader" class="hidden justify-center items-center py-6"><div class="loader"></div></div>
-                <div id="convert-results" class="hidden bg-white p-6 rounded-lg shadow-sm fade-in"></div>`;
-                setupDropZone('convert-drop-zone', 'convert-input', (file) => convertFile = file, 'convert-filename');
-            }
-        });
 
         // --- File & AI Functions ---
         async function callGeminiOcr(file, prompt) {
@@ -458,7 +247,6 @@
             const resultsEl = document.getElementById('verify-results');
             resultsEl.classList.add('hidden');
             resultsEl.innerHTML = '';
-
             try {
                 // 1. Load Excel and PDF data
                 if (softFiles.length === 0) throw new Error("Please upload at least one Excel file.");
@@ -466,12 +254,10 @@
                 let softData = [];
                 allSoftDataArrays.forEach(data => {
                     if (data && data.length > 0) {
-                        if (softData.length === 0) softData.push(...data);
-                        else softData.push(...data.slice(1));
+                        if (softData.length === 0) softData.push(...data); else softData.push(...data.slice(1));
                     }
                 });
                 if (softData.length < 2) throw new Error("Excel files are empty or contain no data rows.");
-
                 const prompt = `Analyze this document. Extract all transaction tables and combine them into one table with one header row. Return as a JSON object: {"table_data": [["Header1"], ["Row1Cell1"]]}.`;
                 const hardDataResponse = await callGeminiOcr(hardFile, prompt);
                 const hardData = hardDataResponse.table_data;
@@ -490,50 +276,36 @@
                         const index = headers.findIndex(h => h.includes(key));
                         if (index !== -1) return index;
                     }
-                    const noIndex = headers.findIndex(h => h === 'no' || h === 'ល.រ' || h === 'លេខរៀង');
-                    return noIndex;
+                    return headers.findIndex(h => h === 'no' || h === 'ល.រ' || h === 'លេខរៀង');
                 };
-
                 const softKeyIndex = findKeyIndex(softHeadersLower);
                 const hardKeyIndex = findKeyIndex(hardHeadersLower);
 
                 let results = [];
                 let comparisonMethod = 'Row Order';
 
-                // --- STRATEGY 1: KEY-BASED MATCHING (IDEAL) ---
                 if (softKeyIndex !== -1 && hardKeyIndex !== -1) {
                     comparisonMethod = `Column "${masterHeaders[softKeyIndex]}"`;
                     const hardDataMap = new Map(hardData.slice(1).map(row => [String(row[hardKeyIndex] || '').trim(), row]));
-                    
                     softData.slice(1).forEach(softRow => {
                         const key = String(softRow[softKeyIndex] || '').trim();
                         const hardRow = hardDataMap.get(key);
-                        results.push({ key: key, soft: softRow, hard: hardRow });
+                        results.push({ key, soft: softRow, hard: hardRow });
                         if (hardRow) hardDataMap.delete(key);
                     });
-
-                    hardDataMap.forEach((hardRow, key) => {
-                        results.push({ key: key, soft: null, hard: hardRow });
-                    });
-                } 
-                // --- STRATEGY 2: ROW ORDER MATCHING (FALLBACK) ---
-                else {
+                    hardDataMap.forEach((hardRow, key) => results.push({ key, soft: null, hard: hardRow }));
+                } else {
                     const numRows = Math.max(softData.length - 1, hardData.length - 1);
                     for (let i = 0; i < numRows; i++) {
-                        const softRow = softData[i + 1] || null;
-                        const hardRow = hardData[i + 1] || null;
-                        results.push({ key: `Row ${i+1}`, soft: softRow, hard: hardRow });
+                        results.push({ key: `Row ${i+1}`, soft: softData[i + 1] || null, hard: hardData[i + 1] || null });
                     }
                 }
 
-                // 4. Analyze results and prepare for rendering
-                let finalResults = [];
-                results.forEach(res => {
-                    if (!res.soft) {
-                        res.status = 'missing_in_soft'; // In PDF only
-                    } else if (!res.hard) {
-                        res.status = 'missing_in_hard'; // In Excel only
-                    } else {
+                // 4. Analyze results
+                finalResults = results.map(res => {
+                    if (!res.soft) res.status = 'missing_in_soft';
+                    else if (!res.hard) res.status = 'missing_in_hard';
+                    else {
                         res.details = {};
                         let isMismatch = false;
                         masterHeaders.forEach((header, i) => {
@@ -547,29 +319,19 @@
                         });
                         res.status = isMismatch ? 'mismatch' : 'match';
                     }
-                    finalResults.push(res);
+                    return res;
                 });
                 
-                // 5. Render the table
+                // 5. Render table
                 const mismatches = finalResults.filter(r => r.status !== 'match');
-                let html = `<div class="flex justify-between items-center mb-4">
-                                <h3 class="text-xl font-bold">Comparison Results</h3>
-                                <span class="text-sm text-gray-500">Matching by: <strong>${comparisonMethod}</strong></span>
-                            </div>`;
-
+                let html = `<div class="flex justify-between items-center mb-4"><h3 class="text-xl font-bold">Comparison Results</h3><span class="text-sm text-gray-500">Matching by: <strong>${comparisonMethod}</strong></span></div>`;
                 if (mismatches.length === 0) {
                     html += `<p class="p-4 bg-green-100 text-green-800 rounded-md">✅ All ${finalResults.length} records match perfectly!</p>`;
                 } else {
                     html += `<p class="text-lg font-semibold text-red-600 mb-4">${mismatches.length} ${mismatches.length > 1 ? 'discrepancies' : 'discrepancy'} found.</p>`;
-                    html += `<div class="overflow-x-auto"><table class="w-full text-sm text-left">
-                        <thead class="bg-gray-100 text-gray-700"><tr>
-                            <th class="p-3">Source</th>
-                            ${masterHeaders.map(h => `<th class="p-3">${escapeXml(h)}</th>`).join('')}
-                        </tr></thead><tbody>`;
-
+                    html += `<div class="overflow-x-auto"><table class="w-full text-sm text-left"><thead class="bg-gray-100 text-gray-700"><tr><th class="p-3">Source</th>${masterHeaders.map(h => `<th class="p-3">${escapeXml(h)}</th>`).join('')}</tr></thead><tbody>`;
                     finalResults.forEach(res => {
                         if (res.status === 'match') return;
-
                         const renderRow = (source, rowData, details = {}) => {
                             let rowHtml = `<td>${source}</td>`;
                             masterHeaders.forEach((header, i) => {
@@ -580,7 +342,6 @@
                             });
                             return rowHtml;
                         };
-
                         if (res.status === 'mismatch') {
                             html += `<tr class="mismatch-row border-b">${renderRow('Excel', res.soft, res.details)}</tr>`;
                             html += `<tr class="mismatch-row border-b">${renderRow('PDF', res.hard, res.details)}</tr>`;
@@ -593,13 +354,8 @@
                     html += `</tbody></table></div>`;
                 }
                 resultsEl.innerHTML = html;
-            } catch (e) {
-                console.error(e);
-                displayError('verify-results', e);
-            } finally {
-                hideLoader('verify-loader');
-                resultsEl.classList.remove('hidden');
-            }
+            } catch (e) { displayError('verify-results', e); } 
+            finally { hideLoader('verify-loader'); resultsEl.classList.remove('hidden'); }
         }
 
         async function runExtraction() {
@@ -664,5 +420,6 @@
             } catch (e) { displayError('convert-results', e); } finally { hideLoader('convert-loader'); resultsEl.classList.remove('hidden'); }
         }
     </script>
+
 </body>
 </html>
