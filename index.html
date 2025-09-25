@@ -277,17 +277,16 @@
 
         // --- Core Logic for Each Tab ---
 
-        // 1. Verification Logic
-        async function runVerification() {
+       async function runVerification() {
             showLoader('verify-loader');
             const resultsEl = document.getElementById('verify-results');
             resultsEl.classList.add('hidden');
-            
+        
             try {
-                // 1. Read all source files
+                // 1. Read all Excel files
                 const softDataPromises = softFiles.map(readExcelFile);
                 const allSoftDataArrays = await Promise.all(softDataPromises);
-                
+        
                 let combinedSoftDataRaw = [];
                 allSoftDataArrays.forEach((data, index) => {
                     if (!data || data.length === 0) return;
@@ -295,11 +294,12 @@
                     else combinedSoftDataRaw.push(...data.slice(1));
                 });
                 if (combinedSoftDataRaw.length < 2) throw new Error("Excel files must contain a header and at least one data row.");
-
-                const prompt = `Analyze all pages of this document. Find all tables with transaction data. Extract and combine all rows into a single dataset with one header row. Return the data as a JSON object: {"table_data": [["Header1", "Header2"], ["Row1Cell1", "Row1Cell2"]]}. Ensure empty cells are null, not empty strings.`;
+        
+                // 2. Extract all tables from PDFs using Gemini OCR
+                const prompt = `Analyze all tables in this document. Extract all rows with all columns (including Khmer text if present). Do not assume a unique identifier. Prepare the data for matching rows with an Excel file by comparing all columns.`;
                 const hardDataPromises = hardFiles.map(file => callGeminiOcr(file, prompt));
                 const allHardDataResponses = await Promise.all(hardDataPromises);
-                
+        
                 let combinedHardDataRaw = [];
                 allHardDataResponses.forEach((response, index) => {
                     const data = response.table_data;
@@ -308,89 +308,106 @@
                     else combinedHardDataRaw.push(...data.slice(1));
                 });
                 if (combinedHardDataRaw.length < 2) throw new Error("AI could not extract valid tables from the provided PDF(s).");
-
-                // 2. Prepare data and find unique key
+        
+                // 3. Prepare headers and rows
                 const softData = combinedSoftDataRaw.map(row => row.map(cell => String(cell || '')));
                 const hardData = combinedHardDataRaw.map(row => row.map(cell => String(cell || '')));
-                
-                const softHeaderMap = new Map(softData[0].map((h, i) => [h.trim().toLowerCase().replace(/\s/g, ''), i]));
-                const hardHeaderMap = new Map(hardData[0].map((h, i) => [h.trim().toLowerCase().replace(/\s/g, ''), i]));
-
-                const keyHeader = 'serialno';
-                if (!softHeaderMap.has(keyHeader)) {
-                     throw new Error(`The Excel file must contain a column named "SerialNo" or "Serial No" to be used as a unique identifier.`);
-                }
-                if (!hardHeaderMap.has(keyHeader)) {
-                    const originalHeader = combinedSoftDataRaw[0][softHeaderMap.get(keyHeader)];
-                    throw new Error(`The PDF file must also contain a column named "${originalHeader}" to match the Excel file.`);
-                }
-                const softKeyIndex = softHeaderMap.get(keyHeader);
-                const hardKeyIndex = hardHeaderMap.get(keyHeader);
-                
-                const amountHeader = Array.from(softHeaderMap.keys()).find(k => k.toLowerCase().includes('amount'));
-                
-                // 3. Perform comparison
-                const mismatches = [];
-                const softDataMap = new Map(softData.slice(1).map(row => [row[softKeyIndex].trim(), row]));
-
-                hardData.slice(1).forEach((hardRow) => {
-                    const key = hardRow[hardKeyIndex].trim();
-                    if (!key) return; // Skip rows in PDF without a serial number
-                    const softRow = softDataMap.get(key);
-                    
-                    if (!softRow) {
-                        mismatches.push({ type: 'missing_in_soft', data: hardRow, key });
-                    } else {
-                        const mismatchDetails = {};
-                        softData[0].forEach((header, softIndex) => {
-                            const headerKey = header.trim().toLowerCase().replace(/\s/g, '');
-                            const hardIndex = hardHeaderMap.get(headerKey);
-                            
-                            if (typeof hardIndex !== 'undefined') {
-                                const isAmount = headerKey === amountHeader;
-                                if (!compareValues(softRow[softIndex], hardRow[hardIndex], isAmount)) {
-                                    mismatchDetails[header] = { soft: softRow[softIndex], hard: hardRow[hardIndex] };
-                                }
-                            }
-                        });
-
-                        if (Object.keys(mismatchDetails).length > 0) {
-                            mismatches.push({ type: 'content_mismatch', soft: softRow, hard: hardRow, details: mismatchDetails, key });
-                        }
-                        softDataMap.delete(key);
+                const softHeaders = softData[0];
+                const hardHeaders = hardData[0];
+                const softRows = softData.slice(1);
+                const hardRows = hardData.slice(1);
+        
+                // 4. Row similarity function (simple, can be improved with fuzzy matching)
+                function rowSimilarity(rowA, rowB) {
+                    let matches = 0;
+                    let total = Math.max(rowA.length, rowB.length);
+                    for (let i = 0; i < total; i++) {
+                        const valA = (rowA[i] || '').trim();
+                        const valB = (rowB[i] || '').trim();
+                        if (!valA && !valB) continue;
+                        // Exact match, can add looser logic for Khmer names/numbers
+                        if (valA === valB) matches++;
+                        // Optionally: add numeric tolerance, Khmer transliteration, etc
                     }
-                });
-
-                softDataMap.forEach((softRow, key) => {
-                    mismatches.push({ type: 'missing_in_hard', data: softRow, key });
-                });
-
-                // 4. Render results
-                let html = `<h3 class="text-xl font-bold mb-4">Comparison Results</h3>`;
-                if (mismatches.length === 0) {
-                    html += `<p class="p-4 bg-green-100 text-green-800 rounded-md">✅ All records match perfectly!</p>`;
-                } else {
-                    html += `<p class="text-lg font-semibold text-red-600 mb-4">${mismatches.length} ${mismatches.length > 1 ? 'discrepancies' : 'discrepancy'} found.</p>`;
-                    html += `<div class="overflow-x-auto"><table class="w-full text-sm text-left">
-                        <thead class="bg-gray-100 text-gray-700"><tr><th class="p-3">Source</th>${softData[0].map(h => `<th class="p-3">${h}</th>`).join('')}</tr></thead><tbody>`;
-                    
-                    mismatches.forEach(m => {
-                        const getSoftVal = (h) => m.soft[softHeaderMap.get(h.trim().toLowerCase().replace(/\s/g, ''))];
-                        const getHardVal = (h) => m.hard[hardHeaderMap.get(h.trim().toLowerCase().replace(/\s/g, ''))];
-
-                        if (m.type === 'content_mismatch') {
-                            html += `<tr class="mismatch-row border-t"><td class="p-3 font-medium">Excel (SN: ${m.key})</td>${softData[0].map(h => `<td class="p-3 ${m.details[h] ? 'mismatch-cell' : ''}">${m.details[h]?.soft ?? getSoftVal(h)}</td>`).join('')}</tr>`;
-                            html += `<tr class="mismatch-row border-b"><td class="p-3 font-medium">PDF (SN: ${m.key})</td>${softData[0].map(h => `<td class="p-3 ${m.details[h] ? 'mismatch-cell' : ''}">${m.details[h]?.hard ?? getHardVal(h)}</td>`).join('')}</tr>`;
-                        } else if (m.type === 'missing_in_soft') {
-                             html += `<tr class="bg-red-50 border-b"><td class="p-3 font-medium text-red-600">PDF Only (SN: ${m.key})</td>${softData[0].map(h => `<td class="p-3">${m.data[hardHeaderMap.get(h.trim().toLowerCase().replace(/\s/g, ''))] ?? ''}</td>`).join('')}</tr>`;
-                        } else if (m.type === 'missing_in_hard') {
-                            html += `<tr class="bg-yellow-50 border-b"><td class="p-3 font-medium text-yellow-700">Excel Only (SN: ${m.key})</td>${m.data.map(cell => `<td class="p-3">${cell}</td>`).join('')}</tr>`;
+                    return matches / total;
+                }
+        
+                // 5. Match each PDF row to the best Excel row
+                const threshold = 0.6; // Lower means more tolerant; adjust as needed
+                const matches = [];
+                const usedSoftIndexes = new Set();
+        
+                hardRows.forEach((hardRow, hardIdx) => {
+                    let bestScore = 0;
+                    let bestSoftIdx = -1;
+                    softRows.forEach((softRow, softIdx) => {
+                        if (usedSoftIndexes.has(softIdx)) return;
+                        const score = rowSimilarity(hardRow, softRow);
+                        if (score > bestScore) {
+                            bestScore = score;
+                            bestSoftIdx = softIdx;
                         }
                     });
+                    if (bestScore >= threshold && bestSoftIdx > -1) {
+                        matches.push({hardIdx, softIdx: bestSoftIdx, score: bestScore});
+                        usedSoftIndexes.add(bestSoftIdx);
+                    } else {
+                        matches.push({hardIdx, softIdx: null, score: bestScore});
+                    }
+                });
+        
+                // Add unmatched Excel rows
+                softRows.forEach((softRow, softIdx) => {
+                    if (!usedSoftIndexes.has(softIdx)) {
+                        matches.push({hardIdx: null, softIdx, score: 0});
+                    }
+                });
+        
+                // 6. Render result
+                let html = `<h3 class="text-xl font-bold mb-4">Comparison Results (No Unique Key)</h3>`;
+                if (matches.length === 0) {
+                    html += `<p class="p-4 bg-green-100 text-green-800 rounded-md">✅ No mismatches detected!</p>`;
+                } else {
+                    html += `<p class="text-lg font-semibold text-red-600 mb-4">${matches.length} records processed. Threshold for match: ${threshold}</p>`;
+                    html += `<div class="overflow-x-auto"><table class="w-full text-sm text-left">
+                        <thead class="bg-gray-100 text-gray-700"><tr>
+                            <th class="p-3">Source</th>
+                            ${softHeaders.map(h => `<th class="p-3">${h}</th>`).join('')}
+                            <th class="p-3">Match Score</th>
+                        </tr></thead><tbody>`;
+        
+                    matches.forEach(m => {
+                        if (m.hardIdx != null && m.softIdx != null) {
+                            // Matched row
+                            html += `<tr class="${m.score < 1 ? 'mismatch-row' : ''} border-b">
+                                <td class="p-3 font-medium">PDF ↔ Excel</td>
+                                ${softRows[m.softIdx].map((cell, i) => {
+                                    const hardCell = hardRows[m.hardIdx][i] || '';
+                                    return `<td class="p-3${cell !== hardCell ? ' mismatch-cell' : ''}">${cell || ''}</td>`;
+                                }).join('')}
+                                <td class="p-3">${(m.score * 100).toFixed(0)}%</td>
+                            </tr>`;
+                        } else if (m.hardIdx != null) {
+                            // PDF row not matched
+                            html += `<tr class="bg-red-50 border-b">
+                                <td class="p-3 font-medium text-red-600">PDF Only</td>
+                                ${hardRows[m.hardIdx].map(cell => `<td class="p-3">${cell}</td>`).join('')}
+                                <td class="p-3">No match</td>
+                            </tr>`;
+                        } else if (m.softIdx != null) {
+                            // Excel row not matched
+                            html += `<tr class="bg-yellow-50 border-b">
+                                <td class="p-3 font-medium text-yellow-700">Excel Only</td>
+                                ${softRows[m.softIdx].map(cell => `<td class="p-3">${cell}</td>`).join('')}
+                                <td class="p-3">No match</td>
+                            </tr>`;
+                        }
+                    });
+        
                     html += `</tbody></table></div>`;
                 }
                 resultsEl.innerHTML = html;
-
+        
             } catch(e) {
                 displayError('verify-results', e);
             } finally {
@@ -398,8 +415,6 @@
                 resultsEl.classList.remove('hidden');
             }
         }
-
-
         // 2. Extraction Logic
         async function runExtraction() {
             showLoader('extract-loader');
