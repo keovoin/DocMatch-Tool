@@ -461,13 +461,7 @@
                     return paymentXml;
                 }).join('\n');
                 
-                const now = new Date();
-                const createdDate = `${String(now.getDate()).padStart(2, '0')}/${String(now.getMonth() + 1).padStart(2, '0')}/${now.getFullYear()}`;
-                const createdTime = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`;
-
-                const headerXml = `  <Header>\n    <FileType>Payment</FileType>\n    <Version>1.0</Version>\n    <CreatedDate>${createdDate}</CreatedDate>\n    <CreatedTime>${createdTime}</CreatedTime>\n    <TotalRecords>${rows.length}</TotalRecords>\n  </Header>`;
-
-                const finalXml = `<?xml version="1.0" encoding="UTF-8"?>\n<SDRFile>\n${headerXml}\n${xmlPayments}\n</SDRFile>`;
+                const finalXml = `<?xml version="1.0" encoding="UTF-8"?>\n<SDRFile>\n${xmlPayments}\n</SDRFile>`;
                 
                 const xmlPreviewHtml = `<pre class="bg-gray-900 text-white p-4 rounded-lg text-sm overflow-auto h-96"><code>${escapeXml(finalXml)}</code></pre>`;
 
