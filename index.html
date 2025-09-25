@@ -271,11 +271,16 @@
 
                 // 3. FLEXIBLE ROW MATCHING: Try to find a key, otherwise fallback to row index
                 const findKeyIndex = (headers) => {
-                    const potentialKeys = ['serialno', 'serial no', 's/n'];
+                    // ★★★ NEW: Prioritize Account Number for matching ★★★
+                    const potentialKeys = [
+                        'accountno', 'account number', 'លេខគណនី', // Priority 1: Best unique key
+                        'serialno', 'serial no', 's/n'             // Priority 2: Good unique key
+                    ];
                     for (const key of potentialKeys) {
                         const index = headers.findIndex(h => h.includes(key));
                         if (index !== -1) return index;
                     }
+                    // Fallback to a simple 'No.' column, which is less reliable
                     return headers.findIndex(h => h === 'no' || h === 'ល.រ' || h === 'លេខរៀង');
                 };
                 const softKeyIndex = findKeyIndex(softHeadersLower);
@@ -302,7 +307,7 @@
                 }
 
                 // 4. Analyze results
-                finalResults = results.map(res => {
+                const finalResults = results.map(res => {
                     if (!res.soft) res.status = 'missing_in_soft';
                     else if (!res.hard) res.status = 'missing_in_hard';
                     else {
@@ -361,7 +366,6 @@
         async function runExtraction() {
             showLoader('extract-loader');
             const resultsEl = document.getElementById('extract-results');
-            resultsEl.classList.add('hidden');
             resultsEl.innerHTML = '';
             try {
                 const prompt = `Analyze this document. Identify the main table. Extract all rows, including headers. Return the data as a JSON object with a single key "table_data", where the value is an array of arrays. Example: {"table_data": [["Header1"], ["Row1Cell1"]]}.`;
@@ -386,7 +390,6 @@
         async function runConversion() {
             showLoader('convert-loader');
             const resultsEl = document.getElementById('convert-results');
-            resultsEl.classList.add('hidden');
             resultsEl.innerHTML = '';
             try {
                 const dataRaw = await readExcelFile(convertFile);
@@ -420,6 +423,5 @@
             } catch (e) { displayError('convert-results', e); } finally { hideLoader('convert-loader'); resultsEl.classList.remove('hidden'); }
         }
     </script>
-
 </body>
 </html>
