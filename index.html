@@ -187,7 +187,41 @@
             document.getElementById('convert-btn').disabled = !convertFile;
         }
 
-        // --- Initialization ---
+            // Normalize amount string to a Number (returns NaN for non-numeric)
+        function normalizeAmountToNumber(value) {
+          if (value === undefined || value === null) return NaN;
+              // keep only digits, minus sign and decimal separator
+          let s = String(value).trim();
+              // remove currency symbols and spaces
+          s = s.replace(/[\p{Sc}\s]/gu, '');
+              // remove thousands separators (commas or spaces)
+          s = s.replace(/[, ](?=\d{3}(\D|$))/g, '');
+              // replace comma decimal (e.g., 1.234,56) to dot if found
+          const commaDecimalMatch = s.match(/^[-+]?\d{1,3}(?:[\.\s]\d{3})*,\d+$/);
+          if (commaDecimalMatch) {
+            s = s.replace(/\./g, '').replace(',', '.');
+          }
+              // if there are multiple dots, keep only the last as decimal point
+          if ((s.match(/\./g) || []).length > 1) {
+            const parts = s.split('.');
+            const dec = parts.pop();
+            s = parts.join('') + '.' + dec;
+          }
+              // remove any remaining non-digit/decimal/minus characters
+          s = s.replace(/[^\d.-]/g, '');
+          return Number(s);
+        }
+        
+            // Compare two amount values for equality allowing trivial .00 differences and minor float rounding
+        function compareAmounts(a, b, epsilon = 0.0001) {
+          const nA = normalizeAmountToNumber(a);
+          const nB = normalizeAmountToNumber(b);
+          if (Number.isNaN(nA) || Number.isNaN(nB)) return false;
+          return Math.abs(nA - nB) <= epsilon;
+        }
+
+
+            // --- Initialization ---
         document.addEventListener('DOMContentLoaded', () => {
             setupDropZone('verify-soft-drop-zone', 'verify-soft-input', (files) => softFiles = files, 'verify-soft-filenames', 'verify-btn', true);
             setupDropZone('verify-hard-drop-zone', 'verify-hard-input', (file) => hardFile = file, 'verify-hard-filename', 'verify-btn');
