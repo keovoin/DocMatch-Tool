@@ -36,7 +36,7 @@
         </header>
 
         <div class="p-4 mb-6 bg-blue-50 border border-blue-200 rounded-lg text-blue-800 flex items-center">
-             <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-6 w-6 mr-3 text-blue-500"><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"></path><path d="M5 3v4"></path><path d="M19 17v4"></path><path d="M3 5h4"></path><path d="M17 19h4"></path></svg>
+             <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-6 w-6 mr-3 text-blue-500"><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"></path><path d="M5 3v4"></path><path d="M19 17v4"></path><path d="M3 5h4"></path><path d="M17 19h4"></path></svg>
             <p><strong class="font-semibold">Smart Scan AI Enabled:</strong> This tool utilizes an advanced OCR AI to accurately extract text and tables from scanned documents, simplifying the reconciliation process.</p>
         </div>
 
@@ -185,8 +185,6 @@
 
         // --- Helper and AI Functions ---
         async function callGeminiOcr(file, prompt) {
-            // NOTE: Storing API keys in client-side code is a security risk.
-            // This should be handled by a backend server in a production environment.
             const apiKey = "AIzaSyByQkxfWWVZByQ4yiUFok0UwYBmYjIfJtk"; 
 
             const base64Data = await fileToBase64(file);
@@ -233,7 +231,7 @@
                         const data = new Uint8Array(e.target.result);
                         const workbook = XLSX.read(data, { type: 'array' });
                         const sheetName = workbook.SheetNames[0];
-                        resolve(XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], { header: 1 }));
+                        resolve(XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], { header: 1, defval: "" }));
                     } catch (err) { reject(err); }
                 };
                 reader.onerror = (ex) => reject(ex);
@@ -241,9 +239,9 @@
             });
         }
 
-        function downloadFile(content, fileName, mimeType) {
+        function downloadFile(content, fileName) {
             const a = document.createElement('a');
-            const blob = new Blob([content], { type: mimeType });
+            const blob = (content instanceof Blob) ? content : new Blob([content], { type: 'text/plain' });
             a.href = URL.createObjectURL(blob);
             a.download = fileName;
             document.body.appendChild(a);
@@ -251,6 +249,7 @@
             document.body.removeChild(a);
             URL.revokeObjectURL(a.href);
         }
+
 
         function showLoader(loaderId) { document.getElementById(loaderId).style.display = 'flex'; }
         function hideLoader(loaderId) { document.getElementById(loaderId).style.display = 'none'; }
@@ -271,7 +270,7 @@
                 const numA = normalizeAmount(valA);
                 const numB = normalizeAmount(valB);
                 if (isNaN(numA) || isNaN(numB)) return false;
-                return Math.abs(numA - numB) < 0.001; // Epsilon for float comparison
+                return Math.abs(numA - numB) < 0.001;
             }
             return String(valA || '').trim() === String(valB || '').trim();
         }
@@ -285,7 +284,7 @@
             resultsEl.classList.add('hidden');
             
             try {
-                // 1. Read all source files (Excel and PDF)
+                // 1. Read all source files
                 const softDataPromises = softFiles.map(readExcelFile);
                 const allSoftDataArrays = await Promise.all(softDataPromises);
                 
@@ -297,7 +296,7 @@
                 });
                 if (combinedSoftDataRaw.length < 2) throw new Error("Excel files must contain a header and at least one data row.");
 
-                const prompt = `Analyze all pages of this document. Find all tables with transaction data. Extract and combine all rows into a single dataset with one header row. Return the data as a JSON object: {"table_data": [["Header1", "Header2"], ["Row1Cell1", "Row1Cell2"]]}.`;
+                const prompt = `Analyze all pages of this document. Find all tables with transaction data. Extract and combine all rows into a single dataset with one header row. Return the data as a JSON object: {"table_data": [["Header1", "Header2"], ["Row1Cell1", "Row1Cell2"]]}. Ensure empty cells are null, not empty strings.`;
                 const hardDataPromises = hardFiles.map(file => callGeminiOcr(file, prompt));
                 const allHardDataResponses = await Promise.all(hardDataPromises);
                 
@@ -310,29 +309,33 @@
                 });
                 if (combinedHardDataRaw.length < 2) throw new Error("AI could not extract valid tables from the provided PDF(s).");
 
-
-                // 2. Prepare data and headers
+                // 2. Prepare data and find unique key
                 const softData = combinedSoftDataRaw.map(row => row.map(cell => String(cell || '')));
                 const hardData = combinedHardDataRaw.map(row => row.map(cell => String(cell || '')));
                 
-                const softHeaderMap = new Map(softData[0].map((h, i) => [h.trim().toLowerCase(), i]));
-                const hardHeaderMap = new Map(hardData[0].map((h, i) => [h.trim().toLowerCase(), i]));
+                const softHeaderMap = new Map(softData[0].map((h, i) => [h.trim().toLowerCase().replace(/\s/g, ''), i]));
+                const hardHeaderMap = new Map(hardData[0].map((h, i) => [h.trim().toLowerCase().replace(/\s/g, ''), i]));
 
                 const keyHeader = 'serialno';
-                if (!softHeaderMap.has(keyHeader) || !hardHeaderMap.has(keyHeader)) {
-                    throw new Error(`Both sources must contain a column named "SerialNo" to be used as a unique identifier.`);
+                if (!softHeaderMap.has(keyHeader)) {
+                     throw new Error(`The Excel file must contain a column named "SerialNo" or "Serial No" to be used as a unique identifier.`);
+                }
+                if (!hardHeaderMap.has(keyHeader)) {
+                    const originalHeader = combinedSoftDataRaw[0][softHeaderMap.get(keyHeader)];
+                    throw new Error(`The PDF file must also contain a column named "${originalHeader}" to match the Excel file.`);
                 }
                 const softKeyIndex = softHeaderMap.get(keyHeader);
                 const hardKeyIndex = hardHeaderMap.get(keyHeader);
                 
                 const amountHeader = Array.from(softHeaderMap.keys()).find(k => k.toLowerCase().includes('amount'));
-
+                
                 // 3. Perform comparison
                 const mismatches = [];
                 const softDataMap = new Map(softData.slice(1).map(row => [row[softKeyIndex].trim(), row]));
 
                 hardData.slice(1).forEach((hardRow) => {
                     const key = hardRow[hardKeyIndex].trim();
+                    if (!key) return; // Skip rows in PDF without a serial number
                     const softRow = softDataMap.get(key);
                     
                     if (!softRow) {
@@ -340,7 +343,7 @@
                     } else {
                         const mismatchDetails = {};
                         softData[0].forEach((header, softIndex) => {
-                            const headerKey = header.trim().toLowerCase();
+                            const headerKey = header.trim().toLowerCase().replace(/\s/g, '');
                             const hardIndex = hardHeaderMap.get(headerKey);
                             
                             if (typeof hardIndex !== 'undefined') {
@@ -372,11 +375,14 @@
                         <thead class="bg-gray-100 text-gray-700"><tr><th class="p-3">Source</th>${softData[0].map(h => `<th class="p-3">${h}</th>`).join('')}</tr></thead><tbody>`;
                     
                     mismatches.forEach(m => {
+                        const getSoftVal = (h) => m.soft[softHeaderMap.get(h.trim().toLowerCase().replace(/\s/g, ''))];
+                        const getHardVal = (h) => m.hard[hardHeaderMap.get(h.trim().toLowerCase().replace(/\s/g, ''))];
+
                         if (m.type === 'content_mismatch') {
-                            html += `<tr class="mismatch-row border-t"><td class="p-3 font-medium">Excel (SN: ${m.key})</td>${softData[0].map(h => `<td class="p-3 ${m.details[h] ? 'mismatch-cell' : ''}">${m.details[h]?.soft ?? m.soft[softHeaderMap.get(h.trim().toLowerCase())]}</td>`).join('')}</tr>`;
-                            html += `<tr class="mismatch-row border-b"><td class="p-3 font-medium">PDF (SN: ${m.key})</td>${softData[0].map(h => `<td class="p-3 ${m.details[h] ? 'mismatch-cell' : ''}">${m.details[h]?.hard ?? m.hard[hardHeaderMap.get(h.trim().toLowerCase())]}</td>`).join('')}</tr>`;
+                            html += `<tr class="mismatch-row border-t"><td class="p-3 font-medium">Excel (SN: ${m.key})</td>${softData[0].map(h => `<td class="p-3 ${m.details[h] ? 'mismatch-cell' : ''}">${m.details[h]?.soft ?? getSoftVal(h)}</td>`).join('')}</tr>`;
+                            html += `<tr class="mismatch-row border-b"><td class="p-3 font-medium">PDF (SN: ${m.key})</td>${softData[0].map(h => `<td class="p-3 ${m.details[h] ? 'mismatch-cell' : ''}">${m.details[h]?.hard ?? getHardVal(h)}</td>`).join('')}</tr>`;
                         } else if (m.type === 'missing_in_soft') {
-                            html += `<tr class="bg-red-50 border-b"><td class="p-3 font-medium text-red-600">PDF Only (SN: ${m.key})</td>${softData[0].map(h => `<td class="p-3">${m.data[hardHeaderMap.get(h.trim().toLowerCase())] ?? ''}</td>`).join('')}</tr>`;
+                             html += `<tr class="bg-red-50 border-b"><td class="p-3 font-medium text-red-600">PDF Only (SN: ${m.key})</td>${softData[0].map(h => `<td class="p-3">${m.data[hardHeaderMap.get(h.trim().toLowerCase().replace(/\s/g, ''))] ?? ''}</td>`).join('')}</tr>`;
                         } else if (m.type === 'missing_in_hard') {
                             html += `<tr class="bg-yellow-50 border-b"><td class="p-3 font-medium text-yellow-700">Excel Only (SN: ${m.key})</td>${m.data.map(cell => `<td class="p-3">${cell}</td>`).join('')}</tr>`;
                         }
@@ -401,10 +407,13 @@
             resultsEl.classList.add('hidden');
             
             try {
-                const prompt = `Analyze this document. Identify the main table. Extract all rows, including headers. Return the data as a JSON object: {"table_data": [["Header1", "Header2"], ["Row1Cell1", "Row1Cell2"]]}.`;
+                const prompt = `Analyze this document. Identify the main table. Extract all rows, including headers. Return data as a JSON object: {"table_data": [["Header1"], ["Row1Cell1"]]}. Ensure empty cells are null.`;
                 const response = await callGeminiOcr(extractFile, prompt);
-                const tableData = response.table_data;
-                if (!tableData || tableData.length === 0) throw new Error("AI could not find a table.");
+                const tableDataRaw = response.table_data;
+                if (!tableDataRaw || tableDataRaw.length === 0) throw new Error("AI could not find a table.");
+
+                // Clean data to replace null with empty strings
+                const tableData = tableDataRaw.map(row => row.map(cell => cell ?? ''));
 
                 const headers = tableData[0];
                 const rows = tableData.slice(1);
@@ -413,17 +422,23 @@
                 const workbook = XLSX.utils.book_new();
                 XLSX.utils.book_append_sheet(workbook, worksheet, "ExtractedData");
                 const excelBuffer = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
+                const excelBlob = new Blob([excelBuffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
                 const jsonString = JSON.stringify(rows.map(row => headers.reduce((obj, h, i) => ({...obj, [h]: row[i]}), {})), null, 2);
 
                 let html = `<h3 class="text-xl font-bold mb-4">Extracted Table Preview</h3>
                     <div class="flex space-x-4 mb-4">
-                        <button onclick="downloadFile(this.dataset.excel, 'extracted-table.xlsx', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')" data-excel="${new Blob([excelBuffer])}" class="bg-green-600 text-white px-4 py-2 rounded-md hover:bg-green-700">Download as Excel</button>
-                        <button onclick="downloadFile('${jsonString}', 'extracted-table.json', 'application/json')" class="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700">Download as JSON</button>
+                        <button id="download-excel-btn" class="bg-green-600 text-white px-4 py-2 rounded-md hover:bg-green-700">Download as Excel</button>
+                        <button id="download-json-btn" class="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700">Download as JSON</button>
                     </div>
                      <div class="overflow-x-auto"><table class="w-full text-sm text-left"><thead class="bg-gray-100 text-gray-700"><tr>${headers.map(h => `<th class="p-3">${h}</th>`).join('')}</tr></thead>
                         <tbody>${rows.map(row => `<tr>${row.map(cell => `<td class="p-3 border-b">${cell}</td>`).join('')}</tr>`).join('')}</tbody>
                     </table></div>`;
+                
                 resultsEl.innerHTML = html;
+
+                // Add event listeners for downloads AFTER rendering the buttons
+                document.getElementById('download-excel-btn').addEventListener('click', () => downloadFile(excelBlob, 'extracted-table.xlsx'));
+                document.getElementById('download-json-btn').addEventListener('click', () => downloadFile(jsonString, 'extracted-table.json'));
 
             } catch(e) {
                  displayError('extract-results', e);
@@ -433,12 +448,12 @@
             }
         }
         
-        // 3. Conversion Logic (Header removed from final XML)
+        // 3. Conversion Logic
         async function runConversion() {
             showLoader('convert-loader');
             const resultsEl = document.getElementById('convert-results');
             resultsEl.classList.add('hidden');
-        
+
             try {
                 const dataRaw = await readExcelFile(convertFile);
                 if (!dataRaw || dataRaw.length < 2) throw new Error("Excel file must contain a header and at least one data row.");
@@ -448,37 +463,32 @@
                 const rows = data.slice(1);
                 
                 const requiredFields = ["PaymentTypeCode", "SerialNo", "PaymentDate", "PayerBank", "PayerCheckDigit", "PayerAccountNo", "CurrencyCode", "Amount", "SecurityCode", "PayerName", "PayerRef", "PayeeBank", "PayeeCheckDigit", "PayeeAccountNo", "PayeeName", "PayeeRef", "ReturnCode", "InputDate", "ProcessingDate", "InputBatchNo", "OutputBatchNo"];
-                const headerMap = new Map(headers.map((h, i) => [String(h || '').trim().toLowerCase(), i]));
-        
+                const headerMap = new Map(headers.map((h, i) => [h.trim().toLowerCase(), i]));
+
                 let xmlPayments = rows.map(row => {
-                    let paymentXml = '  <Payment>\n';
+                    let paymentXml = '  <Payment>';
                     requiredFields.forEach(field => {
                         const index = headerMap.get(field.toLowerCase());
-                        const value = (typeof index !== 'undefined' && row[index] !== undefined) ? row[index] : '';
-                        paymentXml += `    <${field}>${escapeXml(value)}</${field}>\n`;
+                        const value = (typeof index !== 'undefined') ? row[index] : '';
+                        paymentXml += `<${field}>${escapeXml(value)}</${field}>`;
                     });
-                    paymentXml += '  </Payment>';
+                    paymentXml += '</Payment>';
                     return paymentXml;
                 }).join('\n');
                 
-                // final XML WITHOUT Header block
                 const finalXml = `<?xml version="1.0" encoding="UTF-8"?>\n<SDRFile>\n${xmlPayments}\n</SDRFile>`;
-                const xmlBlob = new Blob([finalXml], { type: 'application/xml' });
-        
+                
                 const xmlPreviewHtml = `<pre class="bg-gray-900 text-white p-4 rounded-lg text-sm overflow-auto h-96"><code>${escapeXml(finalXml)}</code></pre>`;
-        
+
                 let successHtml = `<h3 class="text-xl font-bold mb-4">Conversion Preview</h3>
-                <div class="d-flex justify-content-end mb-4">
-                    <button id="download-xml-btn" class="btn btn-success">Download XML File</button>
+                <div class="flex justify-end mb-4">
+                    <button id="download-xml-btn" class="bg-green-600 text-white px-4 py-2 rounded-md hover:bg-green-700">Download XML File</button>
                 </div>
                 ${xmlPreviewHtml}`;
                 resultsEl.innerHTML = successHtml;
-        
-                // wire download button to the generated blob
-                document.getElementById('download-xml-btn').addEventListener('click', () => {
-                    downloadFile(xmlBlob, 'SDRFile.xml');
-                });
-        
+
+                document.getElementById('download-xml-btn').addEventListener('click', () => downloadFile(finalXml, 'SDRFile.xml'));
+
             } catch(e) {
                  displayError('convert-results', e);
             } finally {
@@ -488,7 +498,6 @@
         }
 
         function escapeXml(unsafe) {
-            // This function is now safer and handles undefined or null values
             if (typeof unsafe !== 'string') {
                 unsafe = String(unsafe || '');
             }
