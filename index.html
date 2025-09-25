@@ -283,7 +283,7 @@
             resultsEl.classList.add('hidden');
         
             try {
-                // 1. Read data
+                // 1. Read Excel
                 const softDataArrays = await Promise.all(softFiles.map(readExcelFile));
                 let excelData = [];
                 softDataArrays.forEach((data, idx) => {
@@ -292,6 +292,7 @@
                     else excelData.push(...data.slice(1));
                 });
         
+                // 2. Read PDF
                 const prompt = `Extract the main table from this document as a JSON object: {"table_data":[["Header1",...],["Row1Cell1",...],["Row2Cell1",...]]}. If no header present, use the first row as header.`;
                 const pdfDataArrays = await Promise.all(hardFiles.map(file => callGeminiOcr(file, prompt)));
                 let pdfData = [];
@@ -304,133 +305,174 @@
         
                 if (excelData.length < 2 || pdfData.length < 2) throw new Error("Extraction failed, check your files.");
         
-                // 2. Data cleaning and header alignment
-                function cleanVal(val) {
-                    if (typeof val !== "string") val = String(val ?? "");
-                    return val.replace(/[\s\u200B]+/g, "").replace(/[\u202C\u202B]/g, "").trim();
+                // 3. Clean up and header alignment
+                function cleanText(val) {
+                    return (val ?? "").toString().replace(/[\s\u200B]+/g, "").replace(/[\u202C\u202B]/g, "").trim();
                 }
                 function normalizeAmount(val) {
-                    if (val == null) return "";
-                    return cleanVal(val).replace(/,/g, "");
+                    return cleanText(val).replace(/,/g, "");
                 }
-                function rowToKey(row, headerIdx) {
-                    return cleanVal(row[headerIdx]);
-                }
-        
-                // Use "No." column as primary key (ល.រ)
-                function findNoColumn(headers) {
+                function guessNoColumn(headers) {
+                    // Flexible: match "no", "no.", "ល.រ", numeric headers, and show options
                     for (let i = 0; i < headers.length; i++) {
-                        const h = (headers[i] ?? '').toString().replace(/\s/g, '').toLowerCase();
-                        // Accept "no", "no.", "ល.រ", or any header containing "no" or "ល"
-                        if (h === 'no' || h === 'no.' || h === 'ល.រ') return i;
-                        if (h.includes('no')) return i;
-                        // Khmer: allow columns with "ល" and "រ" (common for numbering)
-                        if (h.includes('ល') && h.includes('រ')) return i;
+                        const h = cleanText(headers[i]).toLowerCase();
+                        if (h === "no" || h === "no." || h === "ល.រ" || h.includes("no") || h.includes("ល") && h.includes("រ")) return i;
                     }
+                    // Try to find a column where all data rows are numbers
+                    let numericIdx = -1;
+                    for (let i = 0; i < headers.length; i++) {
+                        let numericCount = 0;
+                        for (let r = 1; r < pdfData.length; r++) {
+                            if (/^\d+$/.test(cleanText(pdfData[r][i]))) numericCount++;
+                        }
+                        if (numericCount > pdfData.length / 2) { numericIdx = i; break; }
+                    }
+                    if (numericIdx >= 0) return numericIdx;
                     return -1;
                 }
+        
                 const pdfHeaders = pdfData[0];
                 const excelHeaders = excelData[0];
-                const pdfNoIdx = findNoColumn(pdfHeaders);
-                const excelNoIdx = findNoColumn(excelHeaders);
+                let pdfNoIdx = guessNoColumn(pdfHeaders);
+                let excelNoIdx = guessNoColumn(excelHeaders);
         
-                if (pdfNoIdx < 0 || excelNoIdx < 0) throw new Error("No 'No.' column found for matching!");
-        
-                // Build maps: no -> row
-                const pdfRowsMap = {};
-                for (let i = 1; i < pdfData.length; i++) {
-                    const key = rowToKey(pdfData[i], pdfNoIdx);
-                    pdfRowsMap[key] = pdfData[i];
-                }
-                const excelRowsMap = {};
-                for (let i = 1; i < excelData.length; i++) {
-                    const key = rowToKey(excelData[i], excelNoIdx);
-                    excelRowsMap[key] = excelData[i];
-                }
-        
-                // Align headers: use excelHeaders for summary
-                let headers = excelHeaders;
-        
-                // 3. Compare row by row
-                const mismatches = [];
-                Object.keys(pdfRowsMap).forEach(noKey => {
-                    const pdfRow = pdfRowsMap[noKey];
-                    const excelRow = excelRowsMap[noKey];
-                    if (!excelRow) return; // skip missing in Excel
-        
-                    let cellsMismatch = [];
-                    for (let c = 0; c < headers.length; c++) {
-                        let pdfCell = pdfRow[c] ?? "";
-                        let excelCell = excelRow[c] ?? "";
-                        let header = cleanVal(headers[c]);
-        
-                        // Compare amounts with normalization
-                        if (header.includes("ទឹកប្រាក់") || header.toLowerCase().includes("amount")) {
-                            if (normalizeAmount(pdfCell) !== normalizeAmount(excelCell)) {
-                                cellsMismatch.push(c);
-                            }
-                        } else {
-                            if (cleanVal(pdfCell) !== cleanVal(excelCell)) {
-                                cellsMismatch.push(c);
-                            }
-                        }
-                    }
-                    if (cellsMismatch.length > 0) {
-                        mismatches.push({
-                            no: noKey,
-                            pdfRow,
-                            excelRow,
-                            cellsMismatch
-                        });
-                    }
-                });
-        
-                // 4. Build UI
-                let html = `
-                <div class="fixed inset-0 bg-white z-50 overflow-auto p-4">
-                    <div class="max-w-6xl mx-auto">
-                        <div class="flex justify-between items-center mb-4">
-                            <h2 class="text-2xl font-bold">Summary of Discrepancies</h2>
-                            <button onclick="document.getElementById('verify-results').classList.add('hidden')" class="bg-gray-200 px-3 py-1 rounded hover:bg-gray-300">Close</button>
-                        </div>
-                        <div class="mb-5 text-lg text-gray-700">
-                            Here is a simplified table showing only the <span class="font-bold">${mismatches.length}</span> rows where the data between the PDF and the Excel file did not match. The specific mismatched cells are <span class="font-bold">bolded</span> for clarity.
-                        </div>
-                        <div class="overflow-auto border rounded shadow bg-white">
-                            <table class="min-w-full text-sm text-left whitespace-nowrap">
-                                <thead class="bg-gray-100 sticky top-0 z-10">
-                                    <tr>
-                                        <th class="p-3">ល.រ</th>
-                                        <th class="p-3">Source</th>
-                                        ${headers.map(h => `<th class="p-3">${h}</th>`).join('')}
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                ${mismatches.map(m => `
-                                    <tr class="bg-blue-50 border-b">
-                                        <td class="p-3 font-bold align-top" rowspan="2">${m.no}</td>
-                                        <td class="p-3 font-bold text-blue-700 align-top">PDF</td>
-                                        ${m.pdfRow.map((cell, idx) => `<td class="p-3 align-top ${m.cellsMismatch.includes(idx) ? 'font-bold text-red-700' : ''}">${cell}</td>`).join('')}
-                                    </tr>
-                                    <tr class="bg-yellow-50 border-b">
-                                        <td class="p-3 font-bold text-yellow-700 align-top">Excel</td>
-                                        ${m.excelRow.map((cell, idx) => `<td class="p-3 align-top ${m.cellsMismatch.includes(idx) ? 'font-bold text-red-700' : ''}">${cell}</td>`).join('')}
-                                    </tr>
-                                `).join('')}
-                                </tbody>
-                            </table>
-                        </div>
+                // If not found, ask user to pick!
+                if (pdfNoIdx < 0 || excelNoIdx < 0) {
+                    let html = `
+                    <div class="max-w-xl mx-auto my-10 p-6 bg-yellow-50 border rounded shadow">
+                        <h2 class="text-lg font-bold mb-4 text-red-700">Can't auto-detect the Row Number column!</h2>
+                        <p class="mb-3">Please select which column is the row identifier ("No." or "ល.រ") for each file:</p>
+                        <form id="column-selector-form" class="space-y-4">
+                            <div>
+                                <label class="block font-semibold">PDF Columns:</label>
+                                <select id="pdfNoIdx" class="border rounded p-2 mt-1">
+                                    ${pdfHeaders.map((h, i) => `<option value="${i}">${h}</option>`).join("")}
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block font-semibold">Excel Columns:</label>
+                                <select id="excelNoIdx" class="border rounded p-2 mt-1">
+                                    ${excelHeaders.map((h, i) => `<option value="${i}">${h}</option>`).join("")}
+                                </select>
+                            </div>
+                            <button type="submit" class="bg-blue-600 text-white px-4 py-2 rounded mt-3">Continue</button>
+                        </form>
                     </div>
-                </div>
-                `;
+                    `;
+                    resultsEl.innerHTML = html;
+                    hideLoader('verify-loader');
+                    resultsEl.classList.remove('hidden');
+                    document.getElementById('column-selector-form').onsubmit = function(e) {
+                        e.preventDefault();
+                        pdfNoIdx = parseInt(document.getElementById('pdfNoIdx').value, 10);
+                        excelNoIdx = parseInt(document.getElementById('excelNoIdx').value, 10);
+                        proceedDiscrepancySummary(pdfNoIdx, excelNoIdx, pdfData, excelData, resultsEl);
+                    };
+                    return;
+                }
         
-                resultsEl.innerHTML = html;
+                // If found, proceed directly
+                proceedDiscrepancySummary(pdfNoIdx, excelNoIdx, pdfData, excelData, resultsEl);
+        
             } catch(e) {
                 displayError('verify-results', e);
             } finally {
                 hideLoader('verify-loader');
                 resultsEl.classList.remove('hidden');
             }
+        }
+        
+        // Helper function: takes column indexes, raw data, and builds summary as before
+        function proceedDiscrepancySummary(pdfNoIdx, excelNoIdx, pdfData, excelData, resultsEl) {
+            // Use Excel headers for display
+            const headers = excelData[0];
+            function cleanText(val) {
+                return (val ?? "").toString().replace(/[\s\u200B]+/g, "").replace(/[\u202C\u202B]/g, "").trim();
+            }
+            function normalizeAmount(val) {
+                return cleanText(val).replace(/,/g, "");
+            }
+            // Build maps: no -> row
+            const pdfRowsMap = {};
+            for (let i = 1; i < pdfData.length; i++) {
+                const key = cleanText(pdfData[i][pdfNoIdx]);
+                pdfRowsMap[key] = pdfData[i];
+            }
+            const excelRowsMap = {};
+            for (let i = 1; i < excelData.length; i++) {
+                const key = cleanText(excelData[i][excelNoIdx]);
+                excelRowsMap[key] = excelData[i];
+            }
+            // Compare, collect mismatches only
+            const mismatches = [];
+            Object.keys(pdfRowsMap).forEach(noKey => {
+                const pdfRow = pdfRowsMap[noKey];
+                const excelRow = excelRowsMap[noKey];
+                if (!excelRow) return;
+                let cellsMismatch = [];
+                for (let c = 0; c < headers.length; c++) {
+                    let pdfCell = pdfRow[c] ?? "";
+                    let excelCell = excelRow[c] ?? "";
+                    let header = cleanText(headers[c]);
+                    if (header.includes("ទឹកប្រាក់") || header.toLowerCase().includes("amount")) {
+                        if (normalizeAmount(pdfCell) !== normalizeAmount(excelCell)) {
+                            cellsMismatch.push(c);
+                        }
+                    } else {
+                        if (cleanText(pdfCell) !== cleanText(excelCell)) {
+                            cellsMismatch.push(c);
+                        }
+                    }
+                }
+                if (cellsMismatch.length > 0) {
+                    mismatches.push({
+                        no: noKey,
+                        pdfRow,
+                        excelRow,
+                        cellsMismatch
+                    });
+                }
+            });
+        
+            // Build UI: summary table, only mismatches, bold cells
+            let html = `
+            <div class="fixed inset-0 bg-white z-50 overflow-auto p-4">
+                <div class="max-w-6xl mx-auto">
+                    <div class="flex justify-between items-center mb-4">
+                        <h2 class="text-2xl font-bold">Summary of Discrepancies</h2>
+                        <button onclick="document.getElementById('verify-results').classList.add('hidden')" class="bg-gray-200 px-3 py-1 rounded hover:bg-gray-300">Close</button>
+                    </div>
+                    <div class="mb-5 text-lg text-gray-700">
+                        Here is a simplified table showing only the <span class="font-bold">${mismatches.length}</span> rows where the data between the PDF and the Excel file did not match. The specific mismatched cells are <span class="font-bold">bolded</span> for clarity.
+                    </div>
+                    <div class="overflow-auto border rounded shadow bg-white">
+                        <table class="min-w-full text-sm text-left whitespace-nowrap">
+                            <thead class="bg-gray-100 sticky top-0 z-10">
+                                <tr>
+                                    <th class="p-3">ល.រ</th>
+                                    <th class="p-3">Source</th>
+                                    ${headers.map(h => `<th class="p-3">${h}</th>`).join('')}
+                                </tr>
+                            </thead>
+                            <tbody>
+                            ${mismatches.map(m => `
+                                <tr class="bg-blue-50 border-b">
+                                    <td class="p-3 font-bold align-top" rowspan="2">${m.no}</td>
+                                    <td class="p-3 font-bold text-blue-700 align-top">PDF</td>
+                                    ${m.pdfRow.map((cell, idx) => `<td class="p-3 align-top ${m.cellsMismatch.includes(idx) ? 'font-bold text-red-700' : ''}">${cell}</td>`).join('')}
+                                </tr>
+                                <tr class="bg-yellow-50 border-b">
+                                    <td class="p-3 font-bold text-yellow-700 align-top">Excel</td>
+                                    ${m.excelRow.map((cell, idx) => `<td class="p-3 align-top ${m.cellsMismatch.includes(idx) ? 'font-bold text-red-700' : ''}">${cell}</td>`).join('')}
+                                </tr>
+                            `).join('')}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+            `;
+            resultsEl.innerHTML = html;
         }
         // 2. Extraction Logic
         async function runExtraction() {
