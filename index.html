@@ -6,9 +6,9 @@
     <title>DocMatch - Client-Side OCR Tool</title>
     
     <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js" defer></script>
-    <script src='https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js' defer></script>
-    <script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@4.3.136/build/pdf.min.js" defer></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script src='https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js'></script>
+    <script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@4.3.136/build/pdf.min.js"></script>
     
     <style>
         body { font-family: 'Inter', sans-serif; }
@@ -104,22 +104,68 @@
         </main>
     </div>
 
-    <script defer>
-        // --- Global State & Setup ---
+    <script>
+        // --- Global State ---
         let softFiles = [], hardFile = null, extractFile = null, convertFile = null;
         
-        document.addEventListener('DOMContentLoaded', () => {
-            // Set PDF.js worker path
-            pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdn.jsdelivr.net/npm/pdfjs-dist@4.3.136/build/pdf.worker.min.js`;
+        // --- NEW: Robust Initialization ---
+        function initializeApp() {
+            // Set PDF.js worker path once the library is confirmed to be loaded
+            window.pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdn.jsdelivr.net/npm/pdfjs-dist@4.3.136/build/pdf.worker.min.js`;
             
             // Setup all interactive elements
             setupDropZone('verify-soft-drop-zone', 'verify-soft-input', (files) => softFiles = files, 'verify-soft-filenames', true);
             setupDropZone('verify-hard-drop-zone', 'verify-hard-input', (file) => hardFile = file, 'verify-hard-filename', false);
             setupDropZone('extract-drop-zone', 'extract-input', (file) => extractFile = file, 'extract-filename', false);
             setupDropZone('convert-drop-zone', 'convert-input', (file) => convertFile = file, 'convert-filename', false);
-        });
+        }
+
+        function checkLibrariesAndInit() {
+            const maxWaitTime = 10000; // 10 seconds
+            let elapsedTime = 0;
+            const intervalId = setInterval(() => {
+                if (window.pdfjsLib && window.Tesseract && window.XLSX) {
+                    clearInterval(intervalId);
+                    initializeApp();
+                } else {
+                    elapsedTime += 100;
+                    if (elapsedTime >= maxWaitTime) {
+                        clearInterval(intervalId);
+                        document.getElementById('content-area').innerHTML = `<div class="p-4 bg-red-100 border-red-300 rounded-lg text-red-900"><strong class="font-semibold">Initialization Error:</strong><p class="mt-2">Could not load required libraries. Please check your internet connection and refresh the page.</p></div>`;
+                    }
+                }
+            }, 100);
+        }
+
+        // Start the check as soon as the script runs
+        checkLibrariesAndInit();
 
         // --- UI Management ---
+        function switchTab(tabId) { /* ... function code ... */ }
+        function setupDropZone(dropZoneId, inputId, fileSetter, filenameId, isMultiple) { /* ... function code ... */ }
+        function handleFileChange(files, fileSetter, filenameEl, isMultiple) { /* ... function code ... */ }
+        function checkAllFilesAndEnableButtons() { /* ... function code ... */ }
+        function showLoader(loaderId, statusElId, message = '') { /* ... function code ... */ }
+        function hideLoader(loaderId) { /* ... function code ... */ }
+        function displayError(resultsId, error) { /* ... function code ... */ }
+
+        // --- File & Data Helpers ---
+        function readExcelFile(file) { /* ... function code ... */ }
+        function escapeXml(unsafe) { /* ... function code ... */ }
+        function downloadFile(content, fileName, mimeType) { /* ... function code ... */ }
+        
+        // --- OCR and Comparison Logic ---
+        function normalizeValue(value) { /* ... function code ... */ }
+        function createRowFingerprint(row) { /* ... function code ... */ }
+        async function runClientSideOcr(file, statusElId) { /* ... function code ... */ }
+        
+        // --- Main Feature Functions ---
+        async function runVerification() { /* ... function code ... */ }
+        async function runExtraction() { /* ... function code ... */ }
+        async function runConversion() { /* ... function code ... */ }
+
+        // --- ALL FUNCTION DEFINITIONS (PASTED FROM PREVIOUS VERSION) ---
+
         function switchTab(tabId) {
             ['verify', 'extract', 'convert'].forEach(t => {
                 document.getElementById(`${t}-content`).classList.add('hidden');
@@ -135,7 +181,7 @@
             const filenameEl = document.getElementById(filenameId);
             const handler = (files) => {
                 if (files.length > 0) {
-                    fileInput.files = files; // Sync the input element
+                    fileInput.files = files;
                     handleFileChange(files, fileSetter, filenameEl, isMultiple);
                 }
             };
@@ -173,8 +219,7 @@
             el.innerHTML = `<div class="p-4 bg-red-100 border-red-300 rounded-lg text-red-900"><strong class="font-semibold">An Error Occurred:</strong><p class="mt-2">${error.message || 'Unknown error'}</p></div>`;
             el.classList.remove('hidden');
         }
-
-        // --- File & Data Helpers ---
+        
         function readExcelFile(file) {
             return new Promise((resolve, reject) => {
                 const reader = new FileReader();
@@ -193,7 +238,6 @@
             setTimeout(() => URL.revokeObjectURL(url), 100); 
         }
 
-        // --- OCR and Comparison Logic ---
         function normalizeValue(value) {
             if (value === undefined || value === null) return '';
             return String(value).trim().replace(/[\p{Sc},]/gu, '').toLowerCase();
@@ -219,7 +263,7 @@
             const statusEl = document.getElementById(statusElId);
             statusEl.textContent = 'Initializing OCR engine...';
             const worker = await Tesseract.createWorker('eng+khm', 1, { logger: m => { if (m.status === 'recognizing text') statusEl.textContent = `Processing... (${(m.progress * 100).toFixed(0)}%)`; } });
-            const pdf = await pdfjsLib.getDocument(await file.arrayBuffer()).promise;
+            const pdf = await window.pdfjsLib.getDocument(await file.arrayBuffer()).promise;
             let fullText = '';
             for (let i = 1; i <= pdf.numPages; i++) {
                 statusEl.textContent = `Reading page ${i} of ${pdf.numPages}...`;
@@ -237,7 +281,6 @@
             return fullText.split('\n').filter(line => line.trim().length > 5).map(row => row.split(/\s{2,}/).map(cell => cell.trim()));
         }
 
-        // --- Main Feature Functions ---
         async function runVerification() {
             showLoader('verify-loader', 'ocr-status-verify');
             const resultsEl = document.getElementById('verify-results');
