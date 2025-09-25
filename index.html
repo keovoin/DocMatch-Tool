@@ -320,8 +320,12 @@
                 // Use "No." column as primary key (ល.រ)
                 function findNoColumn(headers) {
                     for (let i = 0; i < headers.length; i++) {
-                        const h = cleanVal(headers[i]);
-                        if (h === "ល.រ" || h.toLowerCase() === "no." || h.toLowerCase() === "no") return i;
+                        const h = (headers[i] ?? '').toString().replace(/\s/g, '').toLowerCase();
+                        // Accept "no", "no.", "ល.រ", or any header containing "no" or "ល"
+                        if (h === 'no' || h === 'no.' || h === 'ល.រ') return i;
+                        if (h.includes('no')) return i;
+                        // Khmer: allow columns with "ល" and "រ" (common for numbering)
+                        if (h.includes('ល') && h.includes('រ')) return i;
                     }
                     return -1;
                 }
