@@ -309,25 +309,61 @@
                 });
                 if (combinedHardDataRaw.length < 2) throw new Error("AI could not extract valid tables from the provided PDF(s).");
 
-                // 2. Prepare data and identify key columns for matching with multilingual support
+                // 2. Prepare data and identify key columns with SMART/FUZZY matching
                 const softData = combinedSoftDataRaw.map(row => row.map(cell => String(cell || '')));
                 const hardData = combinedHardDataRaw.map(row => row.map(cell => String(cell || '')));
+                
+                // Levenshtein distance function for fuzzy string matching
+                const levenshtein = (s1, s2) => {
+                    s1 = s1.toLowerCase();
+                    s2 = s2.toLowerCase();
+                    const costs = [];
+                    for (let i = 0; i <= s1.length; i++) {
+                        let lastValue = i;
+                        for (let j = 0; j <= s2.length; j++) {
+                            if (i === 0) costs[j] = j;
+                            else if (j > 0) {
+                                let newValue = costs[j - 1];
+                                if (s1.charAt(i - 1) !== s2.charAt(j - 1)) newValue = Math.min(Math.min(newValue, lastValue), costs[j]) + 1;
+                                costs[j - 1] = lastValue;
+                                lastValue = newValue;
+                            }
+                        }
+                        if (i > 0) costs[s2.length] = lastValue;
+                    }
+                    return costs[s2.length];
+                };
 
-                const findColumnIndex = (headers, aliases) => {
-                    const cleanedHeaders = headers.map(h => String(h || '').toLowerCase().replace(/\s/g, ''));
-                    for (const alias of aliases) {
-                        const index = cleanedHeaders.findIndex(ch => ch.includes(alias));
-                        if (index !== -1) return index;
+                const findFuzzyColumnIndex = (headers, aliases) => {
+                    let bestMatch = { index: -1, score: Infinity };
+                    const cleanedHeaders = headers.map(h => String(h || '').replace(/\s/g, '').toLowerCase());
+
+                    cleanedHeaders.forEach((header, index) => {
+                        if(!header) return;
+                        for (const alias of aliases) {
+                            const score = levenshtein(header, alias);
+                            if (score < bestMatch.score) {
+                                bestMatch = { index, score };
+                            }
+                        }
+                    });
+                    
+                    // Allow for a few typos (e.g., score <= 2) or if the alias is a substring
+                    const bestHeader = cleanedHeaders[bestMatch.index] || '';
+                    const hasSubstringAlias = aliases.some(alias => bestHeader.includes(alias));
+                    
+                    if (bestMatch.score <= 2 || hasSubstringAlias) {
+                        return bestMatch.index;
                     }
                     return -1;
                 };
 
+
                 const softHeaders = softData[0];
                 const hardHeaders = hardData[0];
                 
-                // NEW: Expanded dictionary for English and Khmer
                 const allKeyColumns = {
-                    name: { aliases: ['beneficiaryname', 'payeename', 'receivername', 'name', 'ឈ្មោះ', 'អជ្ញាបណ្ណ', 'អតិថិជន', 'អ្នកទទួល'], label: 'Name/ឈ្មោះ' },
+                    name: { aliases: ['beneficiaryname', 'payeename', 'receiver', 'name', 'ឈ្មោះ', 'អជ្ញាបណ្ណ', 'អតិថិជន', 'អ្នកទទួល'], label: 'Name/ឈ្មោះ' },
                     account: { aliases: ['accountno', 'accountnumber', 'payeeaccountno', 'acct', 'លេខគណនី', 'គណនី'], label: 'Account/លេខគណនី' },
                     bank: { aliases: ['bankname', 'payeebank', 'bank', 'ធនាគារ'], label: 'Bank/ឈ្មោះធនាគារ' },
                     amount: { aliases: ['amount', 'total', 'value', 'ចំនួនទឹកប្រាក់', 'ទឹកប្រាក់', 'សរុប'], label: 'Amount/ទឹកប្រាក់' }
@@ -337,8 +373,8 @@
                 const excludedMatchingKeys = [];
 
                 for (const key in allKeyColumns) {
-                    allKeyColumns[key].softIndex = findColumnIndex(softHeaders, allKeyColumns[key].aliases);
-                    allKeyColumns[key].hardIndex = findColumnIndex(hardHeaders, allKeyColumns[key].aliases);
+                    allKeyColumns[key].softIndex = findFuzzyColumnIndex(softHeaders, allKeyColumns[key].aliases);
+                    allKeyColumns[key].hardIndex = findFuzzyColumnIndex(hardHeaders, allKeyColumns[key].aliases);
                     if (allKeyColumns[key].softIndex !== -1 && allKeyColumns[key].hardIndex !== -1) {
                         foundMatchingKeys.push(key);
                     } else {
@@ -415,7 +451,7 @@
 
                 // 4. Render results
                 let html = `<h3 class="text-xl font-bold mb-4">Comparison Results</h3>`;
-                if(excludedMatchingKeys.length > 0 && excludedMatchingKeys.length < 4){ // Only show if some, but not all, keys were excluded
+                if(excludedMatchingKeys.length > 0 && excludedMatchingKeys.length < 4){ 
                     html += `<div class="p-3 mb-4 bg-yellow-50 border border-yellow-200 rounded-lg text-yellow-800 text-sm">
                         <strong>Notice:</strong> The following columns were not found in both files and were excluded from the matching logic: <strong>${excludedMatchingKeys.join(', ')}</strong>.
                     </div>`;
