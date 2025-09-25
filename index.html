@@ -261,7 +261,7 @@
 
         function normalizeAmount(value) {
             if (value === null || typeof value === 'undefined') return NaN;
-            let s = String(value).trim().replace(/[\s,]/g, '');
+            let s = String(value).trim().replace(/[$,\s]/g, '');
             return parseFloat(s);
         }
 
@@ -309,13 +309,14 @@
                 });
                 if (combinedHardDataRaw.length < 2) throw new Error("AI could not extract valid tables from the provided PDF(s).");
 
-                // 2. Prepare data and identify key columns for matching
+                // 2. Prepare data and identify key columns for matching with multilingual support
                 const softData = combinedSoftDataRaw.map(row => row.map(cell => String(cell || '')));
                 const hardData = combinedHardDataRaw.map(row => row.map(cell => String(cell || '')));
 
                 const findColumnIndex = (headers, aliases) => {
+                    const cleanedHeaders = headers.map(h => h.toLowerCase().replace(/\s/g, ''));
                     for (const alias of aliases) {
-                        const index = headers.findIndex(h => h.toLowerCase().replace(/\s/g, '').includes(alias));
+                        const index = cleanedHeaders.findIndex(ch => ch.includes(alias));
                         if (index !== -1) return index;
                     }
                     return -1;
@@ -325,10 +326,10 @@
                 const hardHeaders = hardData[0];
                 
                 const keyColumns = {
-                    name: { aliases: ['beneficiaryname', 'payeename', 'receivername', 'name'], softIndex: -1, hardIndex: -1, label: 'Name' },
-                    account: { aliases: ['accountno', 'accountnumber', 'payeeaccountno'], softIndex: -1, hardIndex: -1, label: 'Account' },
-                    bank: { aliases: ['bankname', 'payeebank'], softIndex: -1, hardIndex: -1, label: 'Bank' },
-                    amount: { aliases: ['amount'], softIndex: -1, hardIndex: -1, label: 'Amount' }
+                    name: { aliases: ['beneficiaryname', 'payeename', 'receivername', 'name', 'ឈ្មោះ', 'ឈ្មោះអជ្ញាបណ្ណ'], softIndex: -1, hardIndex: -1, label: 'Name/ឈ្មោះ' },
+                    account: { aliases: ['accountno', 'accountnumber', 'payeeaccountno', 'លេខគណនី'], softIndex: -1, hardIndex: -1, label: 'Account/លេខគណនី' },
+                    bank: { aliases: ['bankname', 'payeebank', 'ឈ្មោះធនាគារ'], softIndex: -1, hardIndex: -1, label: 'Bank/ឈ្មោះធនាគារ' },
+                    amount: { aliases: ['amount', 'ចំនួនទឹកប្រាក់', 'ទឹកប្រាក់'], softIndex: -1, hardIndex: -1, label: 'Amount/ទឹកប្រាក់' }
                 };
 
                 for (const key in keyColumns) {
@@ -358,12 +359,12 @@
                     softDataMap.get(key).push(row);
                 });
 
-                hardData.slice(1).forEach((hardRow, i) => {
+                hardData.slice(1).forEach((hardRow) => {
                     const key = getCompositeKey(hardRow, hardIndices);
                     const matchingSoftRows = softDataMap.get(key);
                     
                     if (!matchingSoftRows || matchingSoftRows.length === 0) {
-                        mismatches.push({ type: 'missing_in_soft', data: hardRow, key: `pdf-row-${i}` });
+                        mismatches.push({ type: 'missing_in_soft', data: hardRow, key });
                     } else {
                         const softRow = matchingSoftRows.shift(); // Take the first match and remove it
                         
@@ -377,7 +378,7 @@
                             const hardIndex = hardHeaderMap.get(headerKey);
 
                             if (typeof softIndex !== 'undefined' && typeof hardIndex !== 'undefined') {
-                                const isAmount = headerKey.includes('amount');
+                                const isAmount = headerKey.includes('amount') || headerKey.includes('ទឹកប្រាក់');
                                 if (!compareValues(softRow[softIndex], hardRow[hardIndex], isAmount)) {
                                     mismatchDetails[header] = { soft: softRow[softIndex], hard: hardRow[hardIndex] };
                                 }
