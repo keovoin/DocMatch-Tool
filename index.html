@@ -472,11 +472,107 @@ if (amtIdxB === -1) amtIdxB = pickBestAmountIndex(headersB || [], rowsB || []);
 const plausibleAccount = (accIdxA !== -1) && (accIdxB !== -1);
 const plausibleAmount = (amtIdxA !== -1) && (amtIdxB !== -1);
 
-if (!plausibleAccount || !plausibleAmount) {
-  const detectedA = { accountIndex: accIdxA, amountIndex: amtIdxA, headers: headersA };
-  const detectedB = { accountIndex: accIdxB, amountIndex: amtIdxB, headers: headersB };
-  throw new Error(`Match Failed: Both files must contain identifiable 'Account' and 'Amount' columns for a reliable comparison. Detected: A=${JSON.stringify(detectedA)}, B=${JSON.stringify(detectedB)}`);
+// ===== Robust Account / Amount detection (supports English + Khmer + heuristics) =====
+
+// helpers used by detection
+function findHeaderIndexByCandidates(headers, candidates) {
+  const norm = (headers || []).map(h => String(h || '').trim().toLowerCase());
+  for (const c of candidates) {
+    const idx = norm.indexOf(c.toLowerCase());
+    if (idx !== -1) return idx;
+  }
+  for (let i = 0; i < norm.length; i++) {
+    for (const c of candidates) {
+      if (norm[i].includes(c.toLowerCase())) return i;
+    }
+  }
+  return -1;
 }
+
+function looksLikeAccountColumn(rows, colIndex) {
+  if (colIndex < 0) return 0;
+  let score = 0;
+  for (let r = 0; r < Math.min(rows.length, 20); r++) {
+    const v = String((rows[r] || [])[colIndex] || '').trim();
+    if (!v) continue;
+    if (/\d/.test(v)) score += 2;
+    if (/[A-Za-z\p{L}]/u.test(v)) score += 1; // letters (includes Khmer)
+    if (/[ \-]/.test(v)) score += 0.5;
+    if (/^\d{6,}/.test(v)) score += 0.5;
+  }
+  return score;
+}
+
+function looksLikeAmountColumn(rows, colIndex) {
+  if (colIndex < 0) return 0;
+  let score = 0;
+  for (let r = 0; r < Math.min(rows.length, 20); r++) {
+    const v = String((rows[r] || [])[colIndex] || '').trim();
+    if (!v) continue;
+    let s = v.replace(/[\u00A0\s,]/g, '');
+    try { s = s.replace(/[\p{Sc}]/gu, ''); } catch(e) { s = s.replace(/[$€£¥฿¢]/g, ''); }
+    if (/^-?\d+(\.\d+)?$/.test(s)) score += 2;
+    if (/^\d+[,\.]\d{2}$/.test(v)) score += 1.5;
+    if (/\d/.test(v)) score += 0.5;
+    if (v.includes('.')) score += 0.2;
+  }
+  return score;
+}
+
+// candidate header sets (English + Khmer)
+const accountCandidatesEn = ['account number','accountnumber','accountno','account','acct','acct no','bank account','account #'];
+const amountCandidatesEn = ['amount','amount transfer ($)','amount transfer','amt','transfer amount','value','total','amount ($)'];
+const accountCandidatesKh = ['លេខគណនី','គណនី','លេខ គណនី','លេខគណនី','លេខ​គណនី'];
+const amountCandidatesKh = ['ចំនួន','ចំនួនទឹកប្រាក់','ទឹកប្រាក់','ចំនួនទឹកប្រាក់($)','តម្លៃ'];
+
+const accountCandidates = accountCandidatesEn.concat(accountCandidatesKh);
+const amountCandidates  = amountCandidatesEn.concat(amountCandidatesKh);
+
+// Now detect indices using the variables your code already has for header/rows.
+// IMPORTANT: replace the placeholder names below (headersLeft, rowsLeft, headersRight, rowsRight)
+// with the actual variable names used in your code if they differ. Most projects use names like:
+// headersA, rowsA, excelHeaders, excelRows, pdfHeaders, pdfRows, tableHeaders, tableRows, etc.
+
+// Example placeholders; if your code uses 'headersA'/'rowsA' and 'headersB'/'rowsB', you can use them directly.
+const headersLeft  = headersA || headersA_local || excelHeaders || headers; // try commonly used names
+const rowsLeft     = rowsA    || rowsA_local    || excelRows  || dataRows; // fallback list
+const headersRight = headersB || headersB_local || pdfHeaders || parsedPdfHeaders;
+const rowsRight    = rowsB    || rowsB_local    || pdfRows    || parsedPdfRows;
+
+// If your code defines different names, overwrite the four constants above with those names before running.
+
+let accIdxLeft = findHeaderIndexByCandidates(headersLeft || [], accountCandidates);
+let amtIdxLeft = findHeaderIndexByCandidates(headersLeft || [], amountCandidates);
+let accIdxRight= findHeaderIndexByCandidates(headersRight || [], accountCandidates);
+let amtIdxRight= findHeaderIndexByCandidates(headersRight || [], amountCandidates);
+
+// heuristics fallback: pick best-scoring column if no header match
+function pickBestIndexByScorer(headers, rows, scorer) {
+  let best = -1, bestScore = 0;
+  for (let c = 0; c < (headers || []).length; c++) {
+    const s = scorer(rows || [], c);
+    if (s > bestScore) { bestScore = s; best = c; }
+  }
+  return best;
+}
+
+if (accIdxLeft === -1) accIdxLeft = pickBestIndexByScorer(headersLeft, rowsLeft, looksLikeAccountColumn);
+if (amtIdxLeft === -1) amtIdxLeft = pickBestIndexByScorer(headersLeft, rowsLeft, looksLikeAmountColumn);
+if (accIdxRight === -1) accIdxRight = pickBestIndexByScorer(headersRight, rowsRight, looksLikeAccountColumn);
+if (amtIdxRight === -1) amtIdxRight = pickBestIndexByScorer(headersRight, rowsRight, looksLikeAmountColumn);
+
+// final plausibility check
+const plausibleAccount = (accIdxLeft !== -1) && (accIdxRight !== -1);
+const plausibleAmount  = (amtIdxLeft !== -1) && (amtIdxRight !== -1);
+
+if (!plausibleAccount || !plausibleAmount) {
+  const detectedLeft = { accountIndex: accIdxLeft, amountIndex: amtIdxLeft, headers: headersLeft };
+  const detectedRight= { accountIndex: accIdxRight, amountIndex: amtIdxRight, headers: headersRight };
+  throw new Error(`Match Failed: Both files must contain identifiable 'Account' and 'Amount' columns for a reliable comparison. Detected: LEFT=${JSON.stringify(detectedLeft)}, RIGHT=${JSON.stringify(detectedRight)}`);
+}
+
+// Use accIdxLeft / amtIdxLeft for left/source and accIdxRight / amtIdxRight for right/source in subsequent comparisons.
+
 
 // After this block, use accIdxA/amtIdxA for source A and accIdxB/amtIdxB for source B
 
