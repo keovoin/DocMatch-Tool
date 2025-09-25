@@ -382,9 +382,103 @@
                     }
                 }
                 
-                if (!foundMatchingKeys.includes('account') || !foundMatchingKeys.includes('amount')) {
-                    throw new Error("Match Failed: Both files must contain identifiable 'Account' and 'Amount' columns for a reliable comparison.");
-                }
+                // ===== Robust Account / Amount detection (supports English + Khmer + heuristics) =====
+
+// helpers
+function findHeaderIndexByCandidates(headers, candidates) {
+  const norm = (headers || []).map(h => String(h || '').trim().toLowerCase());
+  for (const c of candidates) {
+    const idx = norm.indexOf(c.toLowerCase());
+    if (idx !== -1) return idx;
+  }
+  // fuzzy contains-match fallback
+  for (let i = 0; i < norm.length; i++) {
+    for (const c of candidates) {
+      if (norm[i].includes(c.toLowerCase())) return i;
+    }
+  }
+  return -1;
+}
+
+function looksLikeAccountColumn(rows, colIndex) {
+  if (colIndex < 0) return 0;
+  let score = 0;
+  for (let r = 0; r < Math.min(rows.length, 20); r++) {
+    const v = String((rows[r] || [])[colIndex] || '').trim();
+    if (!v) continue;
+    if (/\d/.test(v)) score += 2;
+    if (/[A-Za-z\p{L}]/u.test(v)) score += 1; // letters (includes Khmer)
+    if (/[ \-]/.test(v)) score += 0.5;
+    if (/^\d{6,}/.test(v)) score += 0.5;
+  }
+  return score;
+}
+
+function looksLikeAmountColumn(rows, colIndex) {
+  if (colIndex < 0) return 0;
+  let score = 0;
+  for (let r = 0; r < Math.min(rows.length, 20); r++) {
+    const v = String((rows[r] || [])[colIndex] || '').trim();
+    if (!v) continue;
+    let s = v.replace(/[\u00A0\s,]/g, '');
+    try { s = s.replace(/[\p{Sc}]/gu, ''); } catch(e) { s = s.replace(/[$€£¥฿¢]/g, ''); }
+    if (/^-?\d+(\.\d+)?$/.test(s)) score += 2;
+    if (/^\d+[,\.]\d{2}$/.test(v)) score += 1.5;
+    if (/\d/.test(v)) score += 0.5;
+    if (v.includes('.')) score += 0.2;
+  }
+  return score;
+}
+
+// Candidate header strings (English + common Khmer)
+const accountCandidatesEn = ['account number','accountnumber','accountno','account','acct','acct no','bank account','account #'];
+const amountCandidatesEn = ['amount','amount transfer ($)','amount transfer','amt','transfer amount','value','total','amount ($)'];
+const accountCandidatesKh = ['លេខគណនី','គណនី','លេខ គណនី','លេខគណនី','លេខ​គណនី'];
+const amountCandidatesKh = ['ចំនួន','ចំនួនទឹកប្រាក់','ទឹកប្រាក់','ចំនួនទឹកប្រាក់($)','តម្លៃ'];
+
+const accountCandidates = accountCandidatesEn.concat(accountCandidatesKh);
+const amountCandidates = amountCandidatesEn.concat(amountCandidatesKh);
+
+// headersA/rowsA and headersB/rowsB must already be in scope (the two sources)
+let accIdxA = findHeaderIndexByCandidates(headersA || [], accountCandidates);
+let amtIdxA = findHeaderIndexByCandidates(headersA || [], amountCandidates);
+let accIdxB = findHeaderIndexByCandidates(headersB || [], accountCandidates);
+let amtIdxB = findHeaderIndexByCandidates(headersB || [], amountCandidates);
+
+// heuristics: pick best-scoring column if no direct header match
+function pickBestAccountIndex(headers, rows) {
+  let best = -1, bestScore = 0;
+  for (let c = 0; c < (headers || []).length; c++) {
+    const s = looksLikeAccountColumn(rows || [], c);
+    if (s > bestScore) { bestScore = s; best = c; }
+  }
+  return best;
+}
+function pickBestAmountIndex(headers, rows) {
+  let best = -1, bestScore = 0;
+  for (let c = 0; c < (headers || []).length; c++) {
+    const s = looksLikeAmountColumn(rows || [], c);
+    if (s > bestScore) { bestScore = s; best = c; }
+  }
+  return best;
+}
+
+if (accIdxA === -1) accIdxA = pickBestAccountIndex(headersA || [], rowsA || []);
+if (amtIdxA === -1) amtIdxA = pickBestAmountIndex(headersA || [], rowsA || []);
+if (accIdxB === -1) accIdxB = pickBestAccountIndex(headersB || [], rowsB || []);
+if (amtIdxB === -1) amtIdxB = pickBestAmountIndex(headersB || [], rowsB || []);
+
+// final plausibility check
+const plausibleAccount = (accIdxA !== -1) && (accIdxB !== -1);
+const plausibleAmount = (amtIdxA !== -1) && (amtIdxB !== -1);
+
+if (!plausibleAccount || !plausibleAmount) {
+  const detectedA = { accountIndex: accIdxA, amountIndex: amtIdxA, headers: headersA };
+  const detectedB = { accountIndex: accIdxB, amountIndex: amtIdxB, headers: headersB };
+  throw new Error(`Match Failed: Both files must contain identifiable 'Account' and 'Amount' columns for a reliable comparison. Detected: A=${JSON.stringify(detectedA)}, B=${JSON.stringify(detectedB)}`);
+}
+
+// After this block, use accIdxA/amtIdxA for source A and accIdxB/amtIdxB for source B
 
                 const getCompositeKey = (row, indices, keysToUse) => {
                     let keyParts = [];
