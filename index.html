@@ -625,7 +625,7 @@
     <TotalRecords>${rows.length}</TotalRecords>
   </Header>`;
 
-                    const finalXml = `<?xml version="1.0" encoding="UTF-8"?>\n<SDRFile>\n${headerXml}\n${xmlPayments}\n</SDRFile>`;
+                    const finalXml = `<?xml version="1.0" encoding="UTF-8"?>\n<SDRFile>\n${xmlPayments}\n</SDRFile>`;
                     const xmlBlob = new Blob([finalXml], { type: 'application/xml' });
 
                     const sourcePreviewHtml = `<div class="overflow-x-auto h-96 border rounded-lg">
