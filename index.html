@@ -433,12 +433,12 @@
             }
         }
         
-        // 3. Conversion Logic
+        // 3. Conversion Logic (Header removed from final XML)
         async function runConversion() {
             showLoader('convert-loader');
             const resultsEl = document.getElementById('convert-results');
             resultsEl.classList.add('hidden');
-
+        
             try {
                 const dataRaw = await readExcelFile(convertFile);
                 if (!dataRaw || dataRaw.length < 2) throw new Error("Excel file must contain a header and at least one data row.");
@@ -448,36 +448,37 @@
                 const rows = data.slice(1);
                 
                 const requiredFields = ["PaymentTypeCode", "SerialNo", "PaymentDate", "PayerBank", "PayerCheckDigit", "PayerAccountNo", "CurrencyCode", "Amount", "SecurityCode", "PayerName", "PayerRef", "PayeeBank", "PayeeCheckDigit", "PayeeAccountNo", "PayeeName", "PayeeRef", "ReturnCode", "InputDate", "ProcessingDate", "InputBatchNo", "OutputBatchNo"];
-                const headerMap = new Map(headers.map((h, i) => [h.trim().toLowerCase(), i]));
-
+                const headerMap = new Map(headers.map((h, i) => [String(h || '').trim().toLowerCase(), i]));
+        
                 let xmlPayments = rows.map(row => {
-                    let paymentXml = '  <Payment>';
+                    let paymentXml = '  <Payment>\n';
                     requiredFields.forEach(field => {
                         const index = headerMap.get(field.toLowerCase());
-                        const value = (typeof index !== 'undefined') ? row[index] : '';
-                        paymentXml += `<${field}>${escapeXml(value)}</${field}>`;
+                        const value = (typeof index !== 'undefined' && row[index] !== undefined) ? row[index] : '';
+                        paymentXml += `    <${field}>${escapeXml(value)}</${field}>\n`;
                     });
-                    paymentXml += '</Payment>';
+                    paymentXml += '  </Payment>';
                     return paymentXml;
                 }).join('\n');
                 
-                const now = new Date();
-                const createdDate = `${String(now.getDate()).padStart(2, '0')}/${String(now.getMonth() + 1).padStart(2, '0')}/${now.getFullYear()}`;
-                const createdTime = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`;
-
-                const headerXml = `  <Header>\n    <FileType>Payment</FileType>\n    <Version>1.0</Version>\n    <CreatedDate>${createdDate}</CreatedDate>\n    <CreatedTime>${createdTime}</CreatedTime>\n    <TotalRecords>${rows.length}</TotalRecords>\n  </Header>`;
-
-                const finalXml = `<?xml version="1.0" encoding="UTF-8"?>\n<SDRFile>\n${headerXml}\n${xmlPayments}\n</SDRFile>`;
-                
+                // final XML WITHOUT Header block
+                const finalXml = `<?xml version="1.0" encoding="UTF-8"?>\n<SDRFile>\n${xmlPayments}\n</SDRFile>`;
+                const xmlBlob = new Blob([finalXml], { type: 'application/xml' });
+        
                 const xmlPreviewHtml = `<pre class="bg-gray-900 text-white p-4 rounded-lg text-sm overflow-auto h-96"><code>${escapeXml(finalXml)}</code></pre>`;
-
+        
                 let successHtml = `<h3 class="text-xl font-bold mb-4">Conversion Preview</h3>
-                <div class="flex justify-end mb-4">
-                    <button onclick="downloadFile(this.dataset.xml, 'SDRFile.xml', 'application/xml')" data-xml="${escapeXml(finalXml)}" class="bg-green-600 text-white px-4 py-2 rounded-md hover:bg-green-700">Download XML File</button>
+                <div class="d-flex justify-content-end mb-4">
+                    <button id="download-xml-btn" class="btn btn-success">Download XML File</button>
                 </div>
                 ${xmlPreviewHtml}`;
                 resultsEl.innerHTML = successHtml;
-
+        
+                // wire download button to the generated blob
+                document.getElementById('download-xml-btn').addEventListener('click', () => {
+                    downloadFile(xmlBlob, 'SDRFile.xml');
+                });
+        
             } catch(e) {
                  displayError('convert-results', e);
             } finally {
