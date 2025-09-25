@@ -487,6 +487,10 @@
         }
 
         function escapeXml(unsafe) {
+            // This function is now safer and handles undefined or null values
+            if (typeof unsafe !== 'string') {
+                unsafe = String(unsafe || '');
+            }
             return unsafe.replace(/[<>&'"]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;','\'':'&apos;','"':'&quot;'})[c]);
         }
     </script>
