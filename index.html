@@ -1,552 +1,574 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>DocMatch Tool</title>
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet" />
-  <style>
-    body { padding:18px; }
-    .dropzone { min-height:140px; border:2px dashed #0d6efd; border-radius:6px; display:flex; align-items:center; justify-content:center; cursor:pointer; }
-    .file-card { border:1px solid #e9ecef; border-radius:6px; padding:10px; margin-bottom:8px; }
-    .xml-preview { white-space:pre-wrap; word-break:break-word; background:#0b1220; color:#e6eef8; padding:12px; border-radius:6px; max-height:420px; overflow:auto; }
-    .small-mono { font-family: monospace; font-size:.85rem; color:#333; }
-  </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DocMatch AI - Internal Tool</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+body { font-family: 'Inter', sans-serif; }
+.tab-active { border-color: #3b82f6; color: #3b82f6; }
+.drop-zone { border: 2px dashed #d1d5db; transition: background-color 0.2s; }
+.drop-zone.drag-over { background-color: #e0f2fe; border-color: #3b82f6; }
+.loader { border: 4px solid #f3f3f3; border-top: 4px solid #3b82f6; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; }
+@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+.mismatch-row { background-color: #fee2e2; }
+.mismatch-cell { font-weight: bold; color: #dc2626; }
+.fade-in { animation: fadeIn 0.5s ease-in-out; }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }
+</style>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 </head>
-<body>
-  <h1>DocMatch Tool</h1>
+<body class="bg-gray-50 text-gray-800">
 
-  <div class="row">
-    <div class="col-lg-6">
-      <h4>Upload & Verification</h4>
+<div class="container mx-auto p-4 md:p-8 max-w-7xl">
 
-      <div id="dropzone" class="dropzone mb-3">Drop files here or click to upload</div>
-      <input id="fileInput" type="file" multiple hidden accept=".pdf,.png,.jpg,.jpeg,.tiff,.tif,.xlsx,.xls,.csv" />
+<header class="mb-8">
+<div class="flex flex-col md:flex-row justify-between items-center">
+<div>
+<h1 class="text-3xl font-bold text-gray-900">DocMatch AI</h1>
+<p class="text-md text-gray-600 mt-1">An internal tool for document verification, extraction, and conversion.</p>
+</div>
+</div>
+</header>
 
-      <div id="fileList" class="mb-3"><div class="text-muted">No files selected</div></div>
+<div class="p-4 mb-6 bg-blue-50 border border-blue-200 rounded-lg text-blue-800 flex items-center">
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-6 w-6 mr-3 text-blue-500"><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"></path><path d="M5 3v4"></path><path d="M19 17v4"></path><path d="M3 5h4"></path><path d="M17 19h4"></path></svg>
+<p><strong class="font-semibold">Smart Scan AI Enabled:</strong> This tool utilizes an advanced OCR AI to accurately extract text and tables from scanned documents, simplifying the reconciliation process.</p>
+</div>
 
-      <div class="mb-3">
-        <label for="processMode" class="form-label">Mode</label>
-        <select id="processMode" class="form-select">
-          <option value="verify">Verify (Excel ↔ PDF)</option>
-          <option value="convert">Convert Excel → XML</option>
-        </select>
-      </div>
 
-      <div class="d-flex gap-2 mb-3">
-        <button id="startBtn" class="btn btn-primary">Start</button>
-        <button id="clearBtn" class="btn btn-outline-secondary">Clear All</button>
-      </div>
+<div class="mb-8 border-b border-gray-200">
+<nav class="flex space-x-8" aria-label="Tabs">
+<button id="tab-verify" onclick="switchTab('verify')" class="px-1 pb-4 text-sm font-medium border-b-2 border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 tab-active">File Upload & Verification</button>
+<button id="tab-extract" onclick="switchTab('extract')" class="px-1 pb-4 text-sm font-medium border-b-2 border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300">PDF Table Extraction</button>
+<button id="tab-convert" onclick="switchTab('convert')" class="px-1 pb-4 text-sm font-medium border-b-2 border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300">Excel to XML Conversion</button>
+</nav>
+</div>
 
-      <div id="loader" class="mt-3 hidden">Processing... please wait.</div>
-      <div id="results" class="mt-3 hidden"></div>
-    </div>
+<main id="content-area">
+<div id="verify-content" class="space-y-6">
+<div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+<div id="verify-soft-drop-zone" class="drop-zone p-6 rounded-lg bg-white shadow-sm text-center">
+<h3 class="font-semibold text-lg mb-2">1. Upload Soft Files (Excel)</h3>
+<p class="text-sm text-gray-500 mb-4">Drag & drop one or more Excel files (e.g., USD & KHR).</p>
+<input type="file" id="verify-soft-input" class="hidden" accept=".xlsx, .xls" multiple>
+<button onclick="document.getElementById('verify-soft-input').click()" class="bg-blue-500 text-white px-4 py-2 rounded-md hover:bg-blue-600">Browse Files</button>
+<div id="verify-soft-filenames" class="mt-4 text-sm text-gray-600 text-left px-4"></div>
+</div>
+<div id="verify-hard-drop-zone" class="drop-zone p-6 rounded-lg bg-white shadow-sm text-center">
+<h3 class="font-semibold text-lg mb-2">2. Upload Scanned PDF(s)</h3>
+<p class="text-sm text-gray-500 mb-4">Drag & drop one or more multi-page PDFs here.</p>
+<input type="file" id="verify-hard-input" class="hidden" accept=".pdf" multiple>
+<button onclick="document.getElementById('verify-hard-input').click()" class="bg-blue-500 text-white px-4 py-2 rounded-md hover:bg-blue-600">Browse Files</button>
+<div id="verify-hard-filenames" class="mt-4 text-sm text-gray-600 text-left px-4"></div>
+</div>
+</div>
+<div class="text-center">
+<button id="verify-btn" onclick="runVerification()" class="bg-green-600 text-white px-6 py-3 rounded-lg hover:bg-green-700 font-semibold disabled:bg-gray-400" disabled>Compare Files</button>
+</div>
+<div id="verify-loader" class="hidden justify-center items-center py-6"><div class="loader"></div></div>
+<div id="verify-results" class="hidden bg-white p-6 rounded-lg shadow-sm fade-in"></div>
+</div>
 
-    <div class="col-lg-6">
-      <h4>Output / Logs</h4>
-      <div id="output" style="white-space:pre-wrap;background:#f8f9fa;padding:10px;border-radius:6px;min-height:420px"></div>
-    </div>
-  </div>
+<div id="extract-content" class="hidden space-y-6">
+<div id="extract-drop-zone" class="drop-zone p-6 rounded-lg bg-white shadow-sm text-center">
+<h3 class="font-semibold text-lg mb-2">Upload Scanned PDF for Table Extraction</h3>
+<p class="text-sm text-gray-500 mb-4">Drag & drop a PDF file containing a table.</p>
+<input type="file" id="extract-input" class="hidden" accept=".pdf">
+<button onclick="document.getElementById('extract-input').click()" class="bg-blue-500 text-white px-4 py-2 rounded-md hover:bg-blue-600">Browse File</button>
+<p id="extract-filename" class="mt-4 text-sm text-gray-600"></p>
+</div>
+<div class="text-center">
+<button id="extract-btn" onclick="runExtraction()" class="bg-green-600 text-white px-6 py-3 rounded-lg hover:bg-green-700 font-semibold disabled:bg-gray-400" disabled>Extract Table</button>
+</div>
+<div id="extract-loader" class="hidden justify-center items-center py-6"><div class="loader"></div></div>
+<div id="extract-results" class="hidden bg-white p-6 rounded-lg shadow-sm fade-in"></div>
+</div>
+
+<div id="convert-content" class="hidden space-y-6">
+<div id="convert-drop-zone" class="drop-zone p-6 rounded-lg bg-white shadow-sm text-center">
+<h3 class="font-semibold text-lg mb-2">Upload Excel File for XML Conversion</h3>
+<p class="text-sm text-gray-500 mb-4">Drag & drop your structured Excel file here.</p>
+<input type="file" id="convert-input" class="hidden" accept=".xlsx, .xls">
+<button onclick="document.getElementById('convert-input').click()" class="bg-blue-500 text-white px-4 py-2 rounded-md hover:bg-blue-600">Browse File</button>
+<p id="convert-filename" class="mt-4 text-sm text-gray-600"></p>
+</div>
+<div class="text-center">
+<button id="convert-btn" onclick="runConversion()" class="bg-green-600 text-white px-6 py-3 rounded-lg hover:bg-green-700 font-semibold disabled:bg-gray-400" disabled>Convert to XML</button>
+</div>
+<div id="convert-loader" class="hidden justify-center items-center py-6"><div class="loader"></div></div>
+<div id="convert-results" class="hidden bg-white p-6 rounded-lg shadow-sm fade-in"></div>
+</div>
+</main>
+</div>
 
 <script>
-  // Element refs
-  const dropzone = document.getElementById('dropzone');
-  const fileInput = document.getElementById('fileInput');
-  const fileList = document.getElementById('fileList');
-  const startBtn = document.getElementById('startBtn');
-  const clearBtn = document.getElementById('clearBtn');
-  const output = document.getElementById('output');
-  const processMode = document.getElementById('processMode');
-  const loader = document.getElementById('loader');
-  const results = document.getElementById('results');
+// --- Global State ---
+let softFiles = [];
+let hardFiles = [];
+let extractFile = null;
+let convertFile = null;
 
-  // File model
-  let files = []; // { id, file, type, size, status, checksum, pages, addedAt, needsVerification, error }
-  const MAX_FILE_SIZE = 50 * 1024 * 1024;
+// --- UI and Tab Management ---
+function switchTab(tab) {
+const contents = ['verify-content', 'extract-content', 'convert-content'];
+const tabs = ['tab-verify', 'tab-extract', 'tab-convert'];
 
-  // Utilities
-  function genId(){ return Date.now().toString(36) + Math.random().toString(36).slice(2,8); }
-  function escapeXml(unsafe){ if(unsafe===undefined||unsafe===null) return ''; if(typeof unsafe !== 'string') unsafe = String(unsafe); return unsafe.replace(/[<>&'"]/g,c=>({'<':'&lt;','>':'&gt;','&':'&amp;',"'":'&apos;', '"':'&quot;'}[c])); }
-  function detectType(file){ const n=(file.name||'').toLowerCase(); if(file.type==='application/pdf' || n.endsWith('.pdf')) return 'pdf'; if(n.endsWith('.xlsx')||n.endsWith('.xls')) return 'excel'; if(n.endsWith('.csv')||file.type==='text/csv') return 'csv'; if((file.type&&file.type.startsWith('image/'))||n.match(/\.(png|jpg|jpeg|tiff|tif)$/)) return 'image'; return 'unknown'; }
-  async function computeSha256(file){ try{ const buf = await file.arrayBuffer(); const hashBuffer = await crypto.subtle.digest('SHA-256', buf); const hashArray = Array.from(new Uint8Array(hashBuffer)); return hashArray.map(b=>b.toString(16).padStart(2,'0')).join(''); }catch(e){ return null; } }
+contents.forEach(id => document.getElementById(id).classList.add('hidden'));
+tabs.forEach(id => document.getElementById(id).classList.remove('tab-active'));
 
-  // Read Excel helper (SheetJS optional)
-  async function readExcelFile(file) {
-    if (typeof XLSX !== 'undefined') {
-      return new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = (e) => {
-          try {
-            const data = new Uint8Array(e.target.result);
-            const workbook = XLSX.read(data, { type: 'array' });
-            const firstSheet = workbook.SheetNames[0];
-            const rows = XLSX.utils.sheet_to_json(workbook.Sheets[firstSheet], { header: 1, defval: '' });
-            resolve(rows);
-          } catch(ex) { reject(ex); }
-        };
-        reader.onerror = reject;
-        reader.readAsArrayBuffer(file);
-      });
-    } else {
-      if (file.type === 'text/csv' || file.name.toLowerCase().endsWith('.csv')) {
-        const text = await file.text();
-        const rows = text.split(/\r?\n/).filter(r => r.trim() !== '').map(r => r.split(',').map(c => c.trim()));
-        return rows;
-      }
-      throw new Error('No XLSX parser available and file is not CSV. To enable XLSX in-browser include SheetJS or upload CSV.');
-    }
-  }
+document.getElementById(`${tab}-content`).classList.remove('hidden');
+document.getElementById(`tab-${tab}`).classList.add('tab-active');
+}
 
-  // --- Safe, lazy detection function (does NOT throw on failure) ---
-  function detectAccountAndAmountIndices(headersLeft, rowsLeft, headersRight, rowsRight) {
-    function trimStr(v){ return v===undefined||v===null ? '' : String(v).trim(); }
-    function findHeaderIndexByCandidates(headers, candidates){
-      const norm = (headers||[]).map(h => trimStr(h).toLowerCase());
-      for (const c of candidates) {
-        const idx = norm.indexOf(c.toLowerCase());
-        if (idx !== -1) return idx;
-      }
-      for (let i=0;i<norm.length;i++){
-        for (const c of candidates) {
-          if (norm[i].includes(c.toLowerCase())) return i;
-        }
-      }
-      return -1;
-    }
-    function looksLikeAccountColumn(rows, colIndex){
-      if (colIndex < 0) return 0;
-      let score = 0;
-      for (let r=0;r<Math.min(rows.length,20);r++){
-        const v = String((rows[r]||[])[colIndex]||'').trim();
-        if (!v) continue;
-        if (/\d/.test(v)) score += 2;
-        try { if (/\p{L}/u.test(v)) score += 1; } catch(e) { if (/[A-Za-z]/.test(v)) score += 1; }
-        if (/[ \-]/.test(v)) score += 0.5;
-        if (/^\d{6,}/.test(v)) score += 0.5;
-      }
-      return score;
-    }
-    function looksLikeAmountColumn(rows, colIndex){
-      if (colIndex < 0) return 0;
-      let score = 0;
-      for (let r=0;r<Math.min(rows.length,20);r++){
-        const v = String((rows[r]||[])[colIndex]||'').trim();
-        if (!v) continue;
-        let s = v.replace(/[\u00A0\s,]/g,'');
-        try { s = s.replace(/[\p{Sc}]/gu,''); } catch(e) { s = s.replace(/[$€£¥฿¢]/g,''); }
-        if (/^-?\d+(\.\d+)?$/.test(s)) score += 2;
-        if (/^\d+[,\.]\d{2}$/.test(v)) score += 1.5;
-        if (/\d/.test(v)) score += 0.5;
-        if (v.includes('.')) score += 0.2;
-      }
-      return score;
-    }
+function setupDropZone(dropZoneId, inputId, fileStateSetter, filenameId, isMultiple = false) {
+const dropZone = document.getElementById(dropZoneId);
+const fileInput = document.getElementById(inputId);
+const filenameEl = document.getElementById(filenameId);
 
-    const accountCandidatesEn = ['account number','accountnumber','accountno','account','acct','acct no','bank account','account #'];
-    const amountCandidatesEn  = ['amount','amount transfer ($)','amount transfer','amt','transfer amount','value','total','amount ($)'];
-    const accountCandidatesKh = ['លេខគណនី','គណនី','លេខ គណនី','លេខគណនី','លេខ​គណនី'];
-    const amountCandidatesKh  = ['ចំនួន','ចំនួនទឹកប្រាក់','ទឹកប្រាក់','ចំនួនទឹកប្រាក់($)','តម្លៃ'];
+dropZone.addEventListener('dragover', (e) => {
+e.preventDefault();
+dropZone.classList.add('drag-over');
+});
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+dropZone.addEventListener('drop', (e) => {
+e.preventDefault();
+dropZone.classList.remove('drag-over');
+const files = e.dataTransfer.files;
+if (files.length > 0) {
+fileInput.files = files;
+handleFileChange(files, fileStateSetter, filenameEl, isMultiple);
+}
+});
+fileInput.addEventListener('change', (e) => {
+const files = e.target.files;
+if (files.length > 0) {
+handleFileChange(files, fileStateSetter, filenameEl, isMultiple);
+}
+});
+}
 
-    const accountCandidates = accountCandidatesEn.concat(accountCandidatesKh);
-    const amountCandidates  = amountCandidatesEn.concat(amountCandidatesKh);
+function handleFileChange(files, fileStateSetter, filenameEl, isMultiple) {
+if (isMultiple) {
+fileStateSetter(Array.from(files));
+if (files.length > 0) {
+filenameEl.innerHTML = '<ul class="list-disc list-inside">' + Array.from(files).map(f => `<li class="truncate">${f.name}</li>`).join('') + '</ul>';
+} else {
+filenameEl.innerHTML = '';
+}
+} else {
+const file = files[0];
+fileStateSetter(file);
+filenameEl.textContent = file ? `File selected: ${file.name}` : '';
+}
+checkAllFilesAndEnableButtons();
+}
 
-    headersLeft  = headersLeft  || [];
-    headersRight = headersRight || [];
-    rowsLeft     = rowsLeft     || [];
-    rowsRight    = rowsRight    || [];
 
-    let accIdxLeft  = findHeaderIndexByCandidates(headersLeft, accountCandidates);
-    let amtIdxLeft  = findHeaderIndexByCandidates(headersLeft, amountCandidates);
-    let accIdxRight = findHeaderIndexByCandidates(headersRight, accountCandidates);
-    let amtIdxRight = findHeaderIndexByCandidates(headersRight, amountCandidates);
+function checkAllFilesAndEnableButtons() {
+document.getElementById('verify-btn').disabled = !(softFiles.length > 0 && hardFiles.length > 0);
+document.getElementById('extract-btn').disabled = !extractFile;
+document.getElementById('convert-btn').disabled = !convertFile;
+}
 
-    function pickBestIndexByScorer(headers, rows, scorer) {
-      let best = -1, bestScore = 0;
-      for (let c=0;c<(headers||[]).length;c++){
-        const s = scorer(rows, c);
-        if (s > bestScore) { bestScore = s; best = c; }
-      }
-      return best;
-    }
+// --- Initialization ---
+document.addEventListener('DOMContentLoaded', () => {
+setupDropZone('verify-soft-drop-zone', 'verify-soft-input', (files) => softFiles = files, 'verify-soft-filenames', true);
+setupDropZone('verify-hard-drop-zone', 'verify-hard-input', (files) => hardFiles = files, 'verify-hard-filenames', true);
+setupDropZone('extract-drop-zone', 'extract-input', (file) => extractFile = file, 'extract-filename');
+setupDropZone('convert-drop-zone', 'convert-input', (file) => convertFile = file, 'convert-filename');
+});
 
-    if (accIdxLeft === -1) accIdxLeft = pickBestIndexByScorer(headersLeft, rowsLeft, looksLikeAccountColumn);
-    if (amtIdxLeft === -1) amtIdxLeft = pickBestIndexByScorer(headersLeft, rowsLeft, looksLikeAmountColumn);
-    if (accIdxRight === -1) accIdxRight = pickBestIndexByScorer(headersRight, rowsRight, looksLikeAccountColumn);
-    if (amtIdxRight === -1) amtIdxRight = pickBestIndexByScorer(headersRight, rowsRight, looksLikeAmountColumn);
+// --- Helper and AI Functions ---
+async function callGeminiOcr(file, prompt) {
+const apiKey = "AIzaSyByQkxfWWVZByQ4yiUFok0UwYBmYjIfJtk"; 
 
-    const plausibleAccount = (accIdxLeft !== -1) && (accIdxRight !== -1);
-    const plausibleAmount  = (amtIdxLeft !== -1) && (amtIdxRight !== -1);
+const base64Data = await fileToBase64(file);
+const model = "gemini-1.5-flash";
+const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
 
-    if (!plausibleAccount || !plausibleAmount) {
-      return {
-        ok: false,
-        diagnostics: { accIdxLeft, amtIdxLeft, accIdxRight, amtIdxRight, headersLeft, headersRight }
-      };
-    }
+const payload = {
+contents: [{ parts: [{ text: prompt }, { inlineData: { mimeType: file.type, data: base64Data } }] }],
+generationConfig: { responseMimeType: "application/json" }
+};
 
-    return { ok: true, accIdxLeft, amtIdxLeft, accIdxRight, amtIdxRight };
-  }
+try {
+const response = await fetch(apiUrl, {
+method: 'POST',
+headers: { 'Content-Type': 'application/json' },
+body: JSON.stringify(payload)
+});
+if (!response.ok) throw new Error(`API Error: ${response.status} - ${await response.text()}`);
+const result = await response.json();
+const text = result.candidates?.[0]?.content?.parts?.[0]?.text;
+if (!text) throw new Error("AI response was empty or in an unexpected format.");
+const cleanedJsonString = text.replace(/```json\n|```/g, '').trim();
+return JSON.parse(cleanedJsonString);
+} catch(e) {
+console.error("Error during AI call:", e);
+throw e;
+}
+}
 
-  // Amount normalization + compare
-  function normalizeAmountToNumber(value) {
-    if (value === undefined || value === null) return NaN;
-    let s = String(value).trim();
-    s = s.replace(/[\u00A0\s]/g, '');
-    try { s = s.replace(/[\p{Sc}]/gu, ''); } catch(e) { s = s.replace(/[$€£¥฿¢]/g, ''); }
-    if (/^\d{1,3}(?:[\.\s]\d{3})+,\d+$/.test(s)) { s = s.replace(/\./g, '').replace(',', '.'); }
-    else if (/^\d{1,3}(?:,\d{3})+\.\d+$/.test(s)) { s = s.replace(/,/g, ''); }
-    else { s = s.replace(/[, ](?=\d{3}(\D|$))/g, ''); }
-    const dots = (s.match(/\./g) || []).length;
-    if (dots > 1) { const parts = s.split('.'); const dec = parts.pop(); s = parts.join('') + '.' + dec; }
-    s = s.replace(/[^\d.\-]/g, '');
-    const n = Number(s);
-    return Number.isFinite(n) ? n : NaN;
-  }
-  function compareAmounts(a,b,eps=0.0001){ const na = normalizeAmountToNumber(a); const nb = normalizeAmountToNumber(b); if (Number.isNaN(na) || Number.isNaN(nb)) return false; return Math.abs(na-nb) <= eps; }
+function fileToBase64(file) {
+return new Promise((resolve, reject) => {
+const reader = new FileReader();
+reader.readAsDataURL(file);
+reader.onload = () => resolve(reader.result.split(',')[1]);
+reader.onerror = error => reject(error);
+});
+}
 
-  // Prepare SerialNo if missing
-  function findSerialHeaderIndex(headers) {
-    const norm = (headers||[]).map(h => (h||'').toString().trim().toLowerCase());
-    const candidates = ['serialno','serial','serial_no','serial no','sno','s/n','no','number','id','ref','refno'];
-    for (const c of candidates) { const idx = norm.indexOf(c); if (idx !== -1) return idx; }
-    for (let i=0;i<norm.length;i++) if (norm[i].includes('serial')||norm[i].includes('sno')||norm[i]==='no') return i;
-    return -1;
-  }
-  function prepareSerialColumns(leftHeaders,leftRows,rightHeaders,rightRows) {
-    const leftIdx = findSerialHeaderIndex(leftHeaders);
-    const rightIdx = findSerialHeaderIndex(rightHeaders);
-    const lRows = leftRows.map(r=>r.slice());
-    const rRows = rightRows.map(r=>r.slice());
-    const lHeaders = leftHeaders.slice();
-    const rHeaders = rightHeaders.slice();
-    let lIdx = leftIdx, rIdx = rightIdx;
-    if (lIdx === -1) { lHeaders.push('SerialNo'); lIdx = lHeaders.length-1; for (let i=0;i<lRows.length;i++) lRows[i].push(String(i+1)); }
-    if (rIdx === -1) { rHeaders.push('SerialNo'); rIdx = rHeaders.length-1; for (let i=0;i<rRows.length;i++) rRows[i].push(String(i+1)); }
-    return { leftHeaders:lHeaders, rightHeaders:rHeaders, leftRows:lRows, rightRows:rRows, leftSerialIndex:lIdx, rightSerialIndex:rIdx };
-  }
+function readExcelFile(file) {
+return new Promise((resolve, reject) => {
+const reader = new FileReader();
+reader.onload = (e) => {
+try {
+const data = new Uint8Array(e.target.result);
+const workbook = XLSX.read(data, { type: 'array' });
+const sheetName = workbook.SheetNames[0];
+resolve(XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], { header: 1, defval: "" }));
+} catch (err) { reject(err); }
+};
+reader.onerror = (ex) => reject(ex);
+reader.readAsArrayBuffer(file);
+});
+}
 
-  // File upload handlers
-  dropzone.addEventListener('click', () => fileInput.click());
-  dropzone.addEventListener('dragover', (e) => { e.preventDefault(); dropzone.style.background = '#e9f5ff'; });
-  dropzone.addEventListener('dragleave', () => { dropzone.style.background = ''; });
-  dropzone.addEventListener('drop', (e) => { e.preventDefault(); dropzone.style.background = ''; handleFiles(e.dataTransfer.files); });
-  fileInput.addEventListener('change', (e) => handleFiles(e.target.files));
-  clearBtn.addEventListener('click', () => { files = []; renderFileList(); results.innerHTML=''; results.classList.add('hidden'); output.textContent=''; });
+function downloadFile(content, fileName) {
+const a = document.createElement('a');
+const blob = (content instanceof Blob) ? content : new Blob([content], { type: 'text/plain' });
+a.href = URL.createObjectURL(blob);
+a.download = fileName;
+document.body.appendChild(a);
+a.click();
+document.body.removeChild(a);
+URL.revokeObjectURL(a.href);
+}
 
-  async function handleFiles(selectedFiles) {
-    for (let i=0;i<selectedFiles.length;i++){
-      const f = selectedFiles[i];
-      if (f.size > MAX_FILE_SIZE) {
-        files.push({ id: genId(), file: f, type: detectType(f), size: f.size, status:'error', checksum:null, pages:null, addedAt:new Date().toISOString(), needsVerification:false, error:'File too large' });
-        continue;
-      }
-      const item = { id: genId(), file: f, type: detectType(f), size: f.size, status:'pending', checksum:null, pages:null, addedAt:new Date().toISOString(), needsVerification:false };
-      computeSha256(f).then(s => { item.checksum = s; renderFileList(); }).catch(()=>{});
-      // optional pdf.js page count:
-      if (item.type === 'pdf' && typeof pdfjsLib !== 'undefined' && pdfjsLib.getDocument) {
-        try { const ab = await f.arrayBuffer(); const pdf = await pdfjsLib.getDocument({ data: ab }).promise; item.pages = pdf.numPages; } catch(e){}
-      }
-      files.push(item);
-    }
-    renderFileList();
-  }
 
-  function renderFileList() {
-    fileList.innerHTML = '';
-    if (files.length === 0) { fileList.innerHTML = '<div class="text-muted">No files selected</div>'; return; }
-    files.forEach(it => {
-      const sizeKb = Math.round(it.size/1024);
-      const div = document.createElement('div');
-      div.className = 'file-card d-flex justify-content-between';
-      div.innerHTML = `
-        <div style="max-width:70%">
-          <div><strong>${escapeXml(it.file.name)}</strong> <span class="small text-muted">${escapeXml(it.type)}</span></div>
-          <div class="small text-muted">${sizeKb} KB • Added ${new Date(it.addedAt).toLocaleString()}</div>
-          ${it.pages ? `<div class="small">Pages: ${it.pages}</div>` : ''}
-          ${it.checksum ? `<div class="small-mono">SHA256: ${it.checksum.slice(0,16)}...</div>` : ''}
-          ${it.error ? `<div class="text-danger small">${escapeXml(it.error)}</div>` : ''}
-        </div>
-        <div class="text-end">
-          <button data-id="${it.id}" class="btn btn-sm btn-outline-secondary viewBtn mb-1">View</button>
-          <button data-id="${it.id}" class="btn btn-sm btn-outline-warning markBtn mb-1">${it.needsVerification ? 'Unmark' : 'Mark'}</button>
-          <button data-id="${it.id}" class="btn btn-sm btn-danger removeBtn">Remove</button>
-        </div>
-      `;
-      fileList.appendChild(div);
-    });
+function showLoader(loaderId) { document.getElementById(loaderId).style.display = 'flex'; }
+function hideLoader(loaderId) { document.getElementById(loaderId).style.display = 'none'; }
+function displayError(resultsId, error) {
+const resultsEl = document.getElementById(resultsId);
+resultsEl.innerHTML = `<div class="p-4 bg-red-100 border border-red-300 rounded-lg text-red-900"><strong class="font-semibold">An Error Occurred:</strong><p class="mt-2">${error.message}</p></div>`;
+resultsEl.classList.remove('hidden');
+}
 
-    fileList.querySelectorAll('.removeBtn').forEach(b => b.addEventListener('click', (e) => {
-      const id = e.currentTarget.getAttribute('data-id');
-      const idx = files.findIndex(x => x.id === id);
-      if (idx > -1) files.splice(idx,1);
-      renderFileList();
-    }));
-    fileList.querySelectorAll('.markBtn').forEach(b => b.addEventListener('click', (e) => {
-      const id = e.currentTarget.getAttribute('data-id'); const it = files.find(x=>x.id===id); if(!it) return; it.needsVerification = !it.needsVerification; renderFileList();
-    }));
-    fileList.querySelectorAll('.viewBtn').forEach(b => b.addEventListener('click', (e) => {
-      const id = e.currentTarget.getAttribute('data-id'); const it = files.find(x=>x.id===id); if(!it) return; const url = URL.createObjectURL(it.file); window.open(url,'_blank');
-    }));
-  }
+function normalizeAmount(value) {
+if (value === null || typeof value === 'undefined') return NaN;
+let s = String(value).trim().replace(/[$,\s]/g, '');
+return parseFloat(s);
+}
 
-  function downloadBlob(blob, filename) { const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = filename; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url); }
+function compareValues(valA, valB, isAmount = false) {
+if (isAmount) {
+const numA = normalizeAmount(valA);
+const numB = normalizeAmount(valB);
+if (isNaN(numA) || isNaN(numB)) return false;
+return Math.abs(numA - numB) < 0.001;
+}
+return String(valA || '').trim().toLowerCase() === String(valB || '').trim().toLowerCase();
+}
 
-  // Matching (Excel rows vs PDF rows) - uses detectAccountAndAmountIndices and prepares SerialNo
-  function matchSources(headersA, rowsA, headersB, rowsB) {
-    const detect = detectAccountAndAmountIndices(headersA, rowsA, headersB, rowsB);
-    if (!detect.ok) return { ok:false, diagnostics: detect.diagnostics };
+// --- Core Logic for Each Tab ---
 
-    const accIdxA = detect.accIdxLeft, amtIdxA = detect.amtIdxLeft, accIdxB = detect.accIdxRight, amtIdxB = detect.amtIdxRight;
+// 1. Verification Logic
+async function runVerification() {
+showLoader('verify-loader');
+const resultsEl = document.getElementById('verify-results');
+resultsEl.classList.add('hidden');
 
-    const prep = prepareSerialColumns(headersA, rowsA, headersB, rowsB);
-    const Lrows = prep.leftRows, Rrows = prep.rightRows, LserialIdx = prep.leftSerialIndex, RserialIdx = prep.rightSerialIndex;
+try {
+// 1. Read all source files
+const softDataPromises = softFiles.map(readExcelFile);
+const allSoftDataArrays = await Promise.all(softDataPromises);
 
-    // Build lookup by right serial
-    const rightBySerial = new Map();
-    for (let j=0;j<Rrows.length;j++){
-      const key = (Rrows[j][RserialIdx]||'').toString().trim();
-      if (!rightBySerial.has(key)) rightBySerial.set(key, []);
-      rightBySerial.get(key).push({ row: Rrows[j], index: j });
-    }
+let combinedSoftDataRaw = [];
+allSoftDataArrays.forEach((data, index) => {
+if (!data || data.length === 0) return;
+if (index === 0) combinedSoftDataRaw.push(...data);
+else combinedSoftDataRaw.push(...data.slice(1));
+});
+if (combinedSoftDataRaw.length < 2) throw new Error("Excel files must contain a header and at least one data row.");
 
-    const matches = [], unmatchedLeft = [], unmatchedRightUsed = new Set();
+const prompt = `Analyze this document. Find all transaction tables. Extract and combine all rows into a single dataset with one header row. Return the data as a JSON object: {"table_data": [["Header1"], ["Row1Cell1"]]}. Ensure empty cells are null.`;
+const hardDataPromises = hardFiles.map(file => callGeminiOcr(file, prompt));
+const allHardDataResponses = await Promise.all(hardDataPromises);
 
-    for (let i=0;i<Lrows.length;i++){
-      const Lrow = Lrows[i];
-      const serialKey = (Lrow[LserialIdx]||'').toString().trim();
-      let matched = false;
+let combinedHardDataRaw = [];
+allHardDataResponses.forEach((response, index) => {
+const data = response.table_data;
+if (!data || data.length === 0) return;
+if (index === 0) combinedHardDataRaw.push(...data);
+else combinedHardDataRaw.push(...data.slice(1));
+});
+if (combinedHardDataRaw.length < 2) throw new Error("AI could not extract valid tables from the provided PDF(s).");
 
-      // 1) serial match
-      if (serialKey !== '' && rightBySerial.has(serialKey)) {
-        const cands = rightBySerial.get(serialKey);
-        let chosen = null;
-        for (const c of cands) {
-          const rAmt = Rrows[c.index][amtIdxB];
-          const lAmt = Lrow[amtIdxA];
-          if (amtIdxA >=0 && amtIdxB >=0 && compareAmounts(lAmt, rAmt)) { chosen = c; break; }
-        }
-        if (!chosen) chosen = cands.find(c => !unmatchedRightUsed.has(c.index)) || cands[0];
-        matches.push({ leftIndex:i, rightIndex:chosen.index, leftRow:Lrow, rightRow:chosen.row, reason:'serial' });
-        unmatchedRightUsed.add(chosen.index);
-        matched = true;
-      }
+// 2. Prepare data and identify key columns for matching with multilingual support
+const softData = combinedSoftDataRaw.map(row => row.map(cell => String(cell || '')));
+const hardData = combinedHardDataRaw.map(row => row.map(cell => String(cell || '')));
 
-      // 2) fuzzy by account+amount (account exact if present)
-      if (!matched) {
-        const lAcc = accIdxA >= 0 ? String(Lrow[accIdxA] || '').replace(/\s+/g,'') : '';
-        const lAmt = amtIdxA >= 0 ? Lrow[amtIdxA] : '';
-        let bestCandidate = null;
-        for (let j=0;j<Rrows.length;j++){
-          if (unmatchedRightUsed.has(j)) continue;
-          const Rrow = Rrows[j];
-          const rAcc = accIdxB >= 0 ? String(Rrow[accIdxB] || '').replace(/\s+/g,'') : '';
-          const rAmt = amtIdxB >= 0 ? Rrow[amtIdxB] : '';
-          const accMatch = lAcc && rAcc ? (lAcc === rAcc) : true;
-          const amtMatch = (amtIdxA >= 0 && amtIdxB >= 0) ? compareAmounts(lAmt, rAmt) : true;
-          if (accMatch && amtMatch) { bestCandidate = { index:j, row:Rrow }; break; }
-        }
-        if (bestCandidate) { matches.push({ leftIndex:i, rightIndex:bestCandidate.index, leftRow:Lrow, rightRow:bestCandidate.row, reason:'fuzzy' }); unmatchedRightUsed.add(bestCandidate.index); matched = true; }
-      }
+const findColumnIndex = (headers, aliases) => {
+                    const cleanedHeaders = headers.map(h => h.toLowerCase().replace(/\s/g, ''));
+                    const cleanedHeaders = headers.map(h => String(h || '').toLowerCase().replace(/\s/g, ''));
+for (const alias of aliases) {
+const index = cleanedHeaders.findIndex(ch => ch.includes(alias));
+if (index !== -1) return index;
+}
+return -1;
+};
 
-      if (!matched) unmatchedLeft.push({ index:i, row:Lrow });
-    }
+const softHeaders = softData[0];
+const hardHeaders = hardData[0];
 
-    const unmatchedRight = [];
-    for (let j=0;j<Rrows.length;j++) if (!unmatchedRightUsed.has(j)) unmatchedRight.push({ index:j, row:Rrows[j] });
+                // NEW: Expanded dictionary for English and Khmer
+const allKeyColumns = {
+                    name: { aliases: ['beneficiaryname', 'payeename', 'receivername', 'name', 'ឈ្មោះ', 'ឈ្មោះអជ្ញាបណ្ណ'], softIndex: -1, hardIndex: -1, label: 'Name/ឈ្មោះ' },
+                    account: { aliases: ['accountno', 'accountnumber', 'payeeaccountno', 'លេខគណនី'], softIndex: -1, hardIndex: -1, label: 'Account/លេខគណនី' },
+                    bank: { aliases: ['bankname', 'payeebank', 'ឈ្មោះធនាគារ'], softIndex: -1, hardIndex: -1, label: 'Bank/ឈ្មោះធនាគារ' },
+                    amount: { aliases: ['amount', 'ចំនួនទឹកប្រាក់', 'ទឹកប្រាក់'], softIndex: -1, hardIndex: -1, label: 'Amount/ទឹកប្រាក់' }
+                    name: { aliases: ['beneficiaryname', 'payeename', 'receivername', 'name', 'ឈ្មោះ', 'អជ្ញាបណ្ណ', 'អតិថិជន', 'អ្នកទទួល'], label: 'Name/ឈ្មោះ' },
+                    account: { aliases: ['accountno', 'accountnumber', 'payeeaccountno', 'acct', 'លេខគណនី', 'គណនី'], label: 'Account/លេខគណនី' },
+                    bank: { aliases: ['bankname', 'payeebank', 'bank', 'ធនាគារ'], label: 'Bank/ឈ្មោះធនាគារ' },
+                    amount: { aliases: ['amount', 'total', 'value', 'ចំនួនទឹកប្រាក់', 'ទឹកប្រាក់', 'សរុប'], label: 'Amount/ទឹកប្រាក់' }
+};
 
-    return { ok:true, matches, unmatchedLeft, unmatchedRight };
-  }
+const foundMatchingKeys = [];
+const excludedMatchingKeys = [];
 
-  // Start button handler
-  startBtn.addEventListener('click', async () => {
-    results.classList.add('hidden'); results.innerHTML=''; output.textContent=''; loader.classList.remove('hidden');
-    try {
-      const allowed = files.filter(f => !f.needsVerification && f.status !== 'error');
-      if (allowed.length === 0) throw new Error('No files available for processing.');
+for (const key in allKeyColumns) {
+allKeyColumns[key].softIndex = findColumnIndex(softHeaders, allKeyColumns[key].aliases);
+allKeyColumns[key].hardIndex = findColumnIndex(hardHeaders, allKeyColumns[key].aliases);
+if (allKeyColumns[key].softIndex !== -1 && allKeyColumns[key].hardIndex !== -1) {
+foundMatchingKeys.push(key);
+} else {
+excludedMatchingKeys.push(allKeyColumns[key].label);
+}
+}
 
-      if (processMode.value === 'convert') {
-        const excelItem = allowed.find(x => x.type === 'excel' || x.file.name.toLowerCase().endsWith('.csv') || x.file.name.toLowerCase().endsWith('.xlsx') || x.file.name.toLowerCase().endsWith('.xls'));
-        if (!excelItem) throw new Error('No Excel/CSV file found for conversion.');
-        const dataRaw = await readExcelFile(excelItem.file);
-        if (!dataRaw || dataRaw.length < 2) throw new Error('Excel file must contain a header and at least one data row.');
-        const data = dataRaw.map(row => row.map(cell => String(cell || '').trim()));
-        const headers = data[0];
-        const rows = data.slice(1);
-        const requiredFields = ["PaymentTypeCode","SerialNo","PaymentDate","PayerBank","PayerCheckDigit","PayerAccountNo","CurrencyCode","Amount","SecurityCode","PayerName","PayerRef","PayeeBank","PayeeCheckDigit","PayeeAccountNo","PayeeName","PayeeRef","ReturnCode","InputDate","ProcessingDate","InputBatchNo","OutputBatchNo"];
-        const headerMap = new Map(headers.map((h,i)=>[String(h||'').trim().toLowerCase(), i]));
-        const xmlPayments = rows.map(row => {
-          let p = '  <Payment>\n';
-          requiredFields.forEach(field => {
-            const idx = headerMap.get(field.toLowerCase());
-            const value = (typeof idx !== 'undefined' && row[idx] !== undefined) ? row[idx] : '';
-            p += `    <${field}>${escapeXml(value)}</${field}>\n`;
-          });
-          p += '  </Payment>';
-          return p;
-        }).join('\n');
-        const finalXml = `<?xml version="1.0" encoding="UTF-8"?>\n<SDRFile>\n${xmlPayments}\n</SDRFile>`;
-        const xmlBlob = new Blob([finalXml], { type:'application/xml' });
-        results.innerHTML = `<h5>XML Generated</h5><button id="dlXml" class="btn btn-success mb-2">Download SDRFile.xml</button><pre class="xml-preview">${escapeXml(finalXml)}</pre>`;
-        document.getElementById('dlXml').addEventListener('click', ()=> downloadBlob(xmlBlob,'SDRFile.xml'));
-        results.classList.remove('hidden');
-        output.textContent = `Converted ${rows.length} rows.`;
-        renderFileList();
-        return;
-      }
+                // New minimum requirement check
+                
+if (!foundMatchingKeys.includes('account') || !foundMatchingKeys.includes('amount')) {
+                    throw new Error("Match Failed: Both files must contain identifiable 'Account' and 'Amount' columns.");
+                    throw new Error("Match Failed: Both files must contain identifiable 'Account' and 'Amount' columns for a reliable comparison.");
+}
 
-      // VERIFY mode — pick one Excel and one PDF (simple flow)
-      const excelItem = allowed.find(x => x.type === 'excel' || x.file.name.toLowerCase().endsWith('.csv') || x.file.name.toLowerCase().endsWith('.xlsx') || x.file.name.toLowerCase().endsWith('.xls'));
-      const pdfItem = allowed.find(x => x.type === 'pdf' || x.file.name.toLowerCase().endsWith('.pdf'));
-      if (!excelItem || !pdfItem) throw new Error('Please provide one Excel/CSV and one PDF file for matching.');
+const getCompositeKey = (row, indices, keysToUse) => {
+let keyParts = [];
+if (keysToUse.includes('name')) keyParts.push(String(row[indices.name.softIndex] || '').trim().toLowerCase());
+if (keysToUse.includes('account')) keyParts.push(String(row[indices.account.softIndex] || '').trim().replace(/\D/g, ''));
+if (keysToUse.includes('bank')) keyParts.push(String(row[indices.bank.softIndex] || '').trim().toLowerCase());
+if (keysToUse.includes('amount')) keyParts.push(normalizeAmount(row[indices.amount.softIndex] || 0).toFixed(2));
+return keyParts.join('|');
+};
 
-      // Read Excel
-      const excelRaw = await readExcelFile(excelItem.file);
-      if (!excelRaw || excelRaw.length < 2) throw new Error('Excel must have header + data rows.');
-      const headersA = excelRaw[0].map(c => String(c || '').trim());
-      const rowsA = excelRaw.slice(1).map(r => r.map(c => c===undefined||c===null ? '' : c));
+const getCompositeKeyHard = (row, indices, keysToUse) => {
+let keyParts = [];
+if (keysToUse.includes('name')) keyParts.push(String(row[indices.name.hardIndex] || '').trim().toLowerCase());
+if (keysToUse.includes('account')) keyParts.push(String(row[indices.account.hardIndex] || '').trim().replace(/\D/g, ''));
+if (keysToUse.includes('bank')) keyParts.push(String(row[indices.bank.hardIndex] || '').trim().toLowerCase());
+if (keysToUse.includes('amount')) keyParts.push(normalizeAmount(row[indices.amount.hardIndex] || 0).toFixed(2));
+return keyParts.join('|');
+};
 
-      // PDF text extraction (requires pdf.js). If not present, instruct user
-      let headersB = [], rowsB = [];
-      let pdfText = '';
-      if (typeof pdfjsLib !== 'undefined' && pdfjsLib.getDocument) {
-        try {
-          const ab = await pdfItem.file.arrayBuffer();
-          const pdf = await pdfjsLib.getDocument({ data: ab }).promise;
-          const parts = [];
-          for (let p=1;p<=pdf.numPages;p++){
-            const page = await pdf.getPage(p);
-            const content = await page.getTextContent();
-            parts.push(content.items.map(i=>i.str).join(' '));
-          }
-          pdfText = parts.join('\n').trim();
-        } catch(e) { pdfText = ''; }
-      } else {
-        // If pdf.js not loaded, we prefer user to upload CSV/Excel extracted from PDF
-        throw new Error('PDF parsing is not available in-browser. Please include pdf.js or upload a machine-readable table (CSV/Excel) extracted from the PDF.');
-      }
+// 3. Perform comparison using dynamic composite keys
+const mismatches = [];
+const softDataMap = new Map();
+softData.slice(1).forEach(row => {
+const key = getCompositeKey(row, allKeyColumns, foundMatchingKeys);
+if (!softDataMap.has(key)) softDataMap.set(key, []);
+softDataMap.get(key).push(row);
+});
 
-      if (pdfText) {
-        const lines = pdfText.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
-        const splitted = lines.map(l => l.split(/\s{2,}|\t|\|/).map(c => c.trim()).filter(Boolean));
-        const detectHeaderRow = (arr) => {
-          for (let i=0;i<arr.length;i++) {
-            const low = arr[i].map(s => (s||'').toLowerCase());
-            if (low.some(c => /account|លេខគណនី|លេខ|account number|accountno/.test(c)) || low.some(c=>/amount|ចំនួន|amount transfer|total/.test(c))) return i;
-          }
-          return 0;
-        };
-        const headerRowIndex = detectHeaderRow(splitted);
-        headersB = splitted[headerRowIndex];
-        rowsB = splitted.slice(headerRowIndex+1);
-      }
+hardData.slice(1).forEach((hardRow) => {
+const key = getCompositeKeyHard(hardRow, allKeyColumns, foundMatchingKeys);
+const matchingSoftRows = softDataMap.get(key);
 
-      // Run matching
-      const matchResult = matchSources(headersA, rowsA, headersB, rowsB);
-      if (!matchResult.ok) {
-        // show diagnostics but keep UI interactive
-        results.innerHTML = `<div class="alert alert-warning">Column detection failed. Diagnostics:<pre>${escapeXml(JSON.stringify(matchResult.diagnostics || {}, null, 2))}</pre></div>`;
-        results.classList.remove('hidden');
-        output.textContent = 'Column detection failed. See diagnostics above.';
-        return;
-      }
+if (!matchingSoftRows || matchingSoftRows.length === 0) {
+mismatches.push({ type: 'missing_in_soft', data: hardRow, key });
+} else {
+const softRow = matchingSoftRows.shift();
+const softHeaderMap = new Map(softHeaders.map((h, i) => [h.trim().toLowerCase().replace(/\s/g, ''), i]));
+const hardHeaderMap = new Map(hardHeaders.map((h, i) => [h.trim().toLowerCase().replace(/\s/g, ''), i]));
+const mismatchDetails = {};
+softHeaders.forEach(header => {
+const headerKey = header.trim().toLowerCase().replace(/\s/g, '');
+const softIndex = softHeaderMap.get(headerKey);
+const hardIndex = hardHeaderMap.get(headerKey);
 
-      // Present summary
-      const summary = `Matches: ${matchResult.matches.length}\nUnmatched Excel: ${matchResult.unmatchedLeft.length}\nUnmatched PDF: ${matchResult.unmatchedRight.length}\n`;
-      let sample = '';
-      matchResult.matches.slice(0,10).forEach(m => { sample += `Left[${m.leftIndex}] ↔ Right[${m.rightIndex}] (${m.reason})\n`; });
-      results.innerHTML = `<h5>Verification Result</h5><pre>${escapeXml(summary + '\n' + sample)}</pre>`;
-      results.classList.remove('hidden');
-      output.textContent = summary;
+if (typeof softIndex !== 'undefined' && typeof hardIndex !== 'undefined') {
+                                const isAmount = headerKey.includes('amount') || headerKey.includes('ទឹកប្រាក់');
+                                const isAmount = headerKey.includes('amount') || headerKey.includes('ទឹកប្រាក់') || headerKey.includes('សរុប');
+if (!compareValues(softRow[softIndex], hardRow[hardIndex], isAmount)) {
+mismatchDetails[header] = { soft: softRow[softIndex], hard: hardRow[hardIndex] };
+}
+}
+});
 
-    } catch(err) {
-      output.textContent = `An Error Occurred:\n${err && err.message ? err.message : String(err)}`;
-      results.classList.remove('hidden');
-      results.innerHTML = `<div class="alert alert-danger">Error: ${escapeXml(err && err.message ? err.message : String(err))}</div>`;
-    } finally {
-      loader.classList.add('hidden');
-      renderFileList();
-    }
-  });
+if (Object.keys(mismatchDetails).length > 0) {
+mismatches.push({ type: 'content_mismatch', soft: softRow, hard: hardRow, details: mismatchDetails, key });
+}
+}
+});
 
-  // Expose matchSources so internal call can return diagnostics when detection fails
-  function matchSources(headersA, rowsA, headersB, rowsB) {
-    // If detection fails, return diagnostics object instead of throwing
-    const detection = detectAccountAndAmountIndices(headersA, rowsA, headersB, rowsB);
-    if (!detection.ok) return { ok:false, diagnostics: detection.diagnostics };
+softDataMap.forEach((rows) => {
+rows.forEach(row => {
+mismatches.push({ type: 'missing_in_hard', data: row, key: getCompositeKey(row, allKeyColumns, foundMatchingKeys) });
+});
+});
 
-    // else do the matching
-    const accIdxA = detection.accIdxLeft, amtIdxA = detection.amtIdxLeft, accIdxB = detection.accIdxRight, amtIdxB = detection.amtIdxRight;
+// 4. Render results
+let html = `<h3 class="text-xl font-bold mb-4">Comparison Results</h3>`;
+                if(excludedMatchingKeys.length > 0){
+                if(excludedMatchingKeys.length > 0 && excludedMatchingKeys.length < 4){ // Only show if some, but not all, keys were excluded
+html += `<div class="p-3 mb-4 bg-yellow-50 border border-yellow-200 rounded-lg text-yellow-800 text-sm">
+                       <strong>Notice:</strong> The following columns were not found in both files and were excluded from the matching logic: <strong>${excludedMatchingKeys.join(', ')}</strong>.
+                   </div>`;
+}
 
-    const prep = prepareSerialColumns(headersA, rowsA, headersB, rowsB);
-    const Lrows = prep.leftRows, Rrows = prep.rightRows, LserialIdx = prep.leftSerialIndex, RserialIdx = prep.rightSerialIndex;
+if (mismatches.length === 0) {
+html += `<p class="p-4 bg-green-100 text-green-800 rounded-md">✅ All records match perfectly!</p>`;
+} else {
+html += `<p class="text-lg font-semibold text-red-600 mb-4">${mismatches.length} ${mismatches.length > 1 ? 'discrepancies' : 'discrepancy'} found.</p>`;
+html += `<div class="overflow-x-auto"><table class="w-full text-sm text-left">
+                       <thead class="bg-gray-100 text-gray-700"><tr><th class="p-3">Source</th>${softHeaders.map(h => `<th class="p-3">${h}</th>`).join('')}</tr></thead><tbody>`;
 
-    const rightBySerial = new Map();
-    for (let j=0;j<Rrows.length;j++){
-      const key = (Rrows[j][RserialIdx]||'').toString().trim();
-      if (!rightBySerial.has(key)) rightBySerial.set(key, []);
-      rightBySerial.get(key).push({ row:Rrows[j], index:j });
-    }
+let matchIndex = 0;
+mismatches.forEach(m => {
+const softHeaderMap = new Map(softHeaders.map((h, i) => [h.trim().toLowerCase().replace(/\s/g, ''), i]));
+const hardHeaderMap = new Map(hardHeaders.map((h, i) => [h.trim().toLowerCase().replace(/\s/g, ''), i]));
 
-    const matches = [], unmatchedLeft = [], unmatchedRightUsed = new Set();
+if (m.type === 'content_mismatch') {
+matchIndex++;
+const getSoftVal = (h) => m.soft[softHeaderMap.get(h.trim().toLowerCase().replace(/\s/g, ''))];
+const getHardVal = (h) => m.hard[hardHeaderMap.get(h.trim().toLowerCase().replace(/\s/g, ''))];
+html += `<tr class="mismatch-row border-t"><td class="p-3 font-medium">Excel (Match ${matchIndex})</td>${softHeaders.map(h => `<td class="p-3 ${m.details[h] ? 'mismatch-cell' : ''}">${escapeXml(m.details[h]?.soft ?? getSoftVal(h))}</td>`).join('')}</tr>`;
+html += `<tr class="mismatch-row border-b"><td class="p-3 font-medium">PDF (Match ${matchIndex})</td>${softHeaders.map(h => `<td class="p-3 ${m.details[h] ? 'mismatch-cell' : ''}">${escapeXml(m.details[h]?.hard ?? getHardVal(h))}</td>`).join('')}</tr>`;
+} else if (m.type === 'missing_in_soft') {
+html += `<tr class="bg-red-50 border-b"><td class="p-3 font-medium text-red-600">PDF Only</td>${softHeaders.map(h => `<td class="p-3">${escapeXml(m.data[hardHeaderMap.get(h.trim().toLowerCase().replace(/\s/g, ''))] ?? '')}</td>`).join('')}</tr>`;
+} else if (m.type === 'missing_in_hard') {
+html += `<tr class="bg-yellow-50 border-b"><td class="p-3 font-medium text-yellow-700">Excel Only</td>${m.data.map(cell => `<td class="p-3">${escapeXml(cell)}</td>`).join('')}</tr>`;
+}
+});
+html += `</tbody></table></div>`;
+}
+resultsEl.innerHTML = html;
 
-    for (let i=0;i<Lrows.length;i++){
-      const Lrow = Lrows[i];
-      const serialKey = (Lrow[LserialIdx]||'').toString().trim();
-      let matched = false;
+} catch(e) {
+displayError('verify-results', e);
+} finally {
+hideLoader('verify-loader');
+resultsEl.classList.remove('hidden');
+}
+}
 
-      if (serialKey !== '' && rightBySerial.has(serialKey)) {
-        const cands = rightBySerial.get(serialKey);
-        let chosen = null;
-        for (const c of cands) {
-          const rAmt = Rrows[c.index][amtIdxB];
-          const lAmt = Lrow[amtIdxA];
-          if (amtIdxA >=0 && amtIdxB >=0 && compareAmounts(lAmt, rAmt)) { chosen = c; break; }
-        }
-        if (!chosen) chosen = cands.find(c => !unmatchedRightUsed.has(c.index)) || cands[0];
-        matches.push({ leftIndex:i, rightIndex:chosen.index, leftRow:Lrow, rightRow:chosen.row, reason:'serial' });
-        unmatchedRightUsed.add(chosen.index);
-        matched = true;
-      }
 
-      if (!matched) {
-        const lAcc = accIdxA >= 0 ? String(Lrow[accIdxA] || '').replace(/\s+/g,'') : '';
-        const lAmt = amtIdxA >= 0 ? Lrow[amtIdxA] : '';
-        let bestCandidate = null;
-        for (let j=0;j<Rrows.length;j++){
-          if (unmatchedRightUsed.has(j)) continue;
-          const Rrow = Rrows[j];
-          const rAcc = accIdxB >= 0 ? String(Rrow[accIdxB] || '').replace(/\s+/g,'') : '';
-          const rAmt = amtIdxB >= 0 ? Rrow[amtIdxB] : '';
-          const accMatch = lAcc && rAcc ? (lAcc === rAcc) : true;
-          const amtMatch = (amtIdxA >=0 && amtIdxB >=0) ? compareAmounts(lAmt, rAmt) : true;
-          if (accMatch && amtMatch) { bestCandidate = { index:j, row:Rrow }; break; }
-        }
-        if (bestCandidate) { matches.push({ leftIndex:i, rightIndex:bestCandidate.index, leftRow:Lrow, rightRow:bestCandidate.row, reason:'fuzzy' }); unmatchedRightUsed.add(bestCandidate.index); matched = true; }
-      }
+// 2. Extraction Logic
+async function runExtraction() {
+showLoader('extract-loader');
+const resultsEl = document.getElementById('extract-results');
+resultsEl.classList.add('hidden');
 
-      if (!matched) unmatchedLeft.push({ index:i, row:Lrow });
-    }
+try {
+const prompt = `Analyze this document. Identify the main table. Extract all rows, including headers. Return data as a JSON object: {"table_data": [["Header1"], ["Row1Cell1"]]}. Ensure empty cells are null.`;
+const response = await callGeminiOcr(extractFile, prompt);
+const tableDataRaw = response.table_data;
+if (!tableDataRaw || tableDataRaw.length === 0) throw new Error("AI could not find a table.");
 
-    const unmatchedRight = [];
-    for (let j=0;j<Rrows.length;j++) if (!unmatchedRightUsed.has(j)) unmatchedRight.push({ index:j, row:Rrows[j] });
+const tableData = tableDataRaw.map(row => row.map(cell => cell ?? ''));
 
-    return { ok:true, matches, unmatchedLeft, unmatchedRight };
-  }
+const headers = tableData[0];
+const rows = tableData.slice(1);
 
-  // Expose functions used above in-case you want to call them elsewhere
-  window.detectAccountAndAmountIndices = detectAccountAndAmountIndices;
-  window.normalizeAmountToNumber = normalizeAmountToNumber;
-  window.compareAmounts = compareAmounts;
+const worksheet = XLSX.utils.aoa_to_sheet([headers, ...rows]);
+const workbook = XLSX.utils.book_new();
+XLSX.utils.book_append_sheet(workbook, worksheet, "ExtractedData");
+const excelBuffer = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
+const excelBlob = new Blob([excelBuffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+const jsonString = JSON.stringify(rows.map(row => headers.reduce((obj, h, i) => ({...obj, [h]: row[i]}), {})), null, 2);
 
+let html = `<h3 class="text-xl font-bold mb-4">Extracted Table Preview</h3>
+                   <div class="flex space-x-4 mb-4">
+                       <button id="download-excel-btn" class="bg-green-600 text-white px-4 py-2 rounded-md hover:bg-green-700">Download as Excel</button>
+                       <button id="download-json-btn" class="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700">Download as JSON</button>
+                   </div>
+                    <div class="overflow-x-auto"><table class="w-full text-sm text-left"><thead class="bg-gray-100 text-gray-700"><tr>${headers.map(h => `<th class="p-3">${h}</th>`).join('')}</tr></thead>
+                       <tbody>${rows.map(row => `<tr>${row.map(cell => `<td class="p-3 border-b">${cell}</td>`).join('')}</tr>`).join('')}</tbody>
+                   </table></div>`;
+
+resultsEl.innerHTML = html;
+
+document.getElementById('download-excel-btn').addEventListener('click', () => downloadFile(excelBlob, 'extracted-table.xlsx'));
+document.getElementById('download-json-btn').addEventListener('click', () => downloadFile(jsonString, 'extracted-table.json'));
+
+} catch(e) {
+displayError('extract-results', e);
+} finally {
+hideLoader('extract-loader');
+resultsEl.classList.remove('hidden');
+}
+}
+
+// 3. Conversion Logic
+async function runConversion() {
+showLoader('convert-loader');
+const resultsEl = document.getElementById('convert-results');
+resultsEl.classList.add('hidden');
+
+try {
+const dataRaw = await readExcelFile(convertFile);
+if (!dataRaw || dataRaw.length < 2) throw new Error("Excel file must contain a header and at least one data row.");
+
+const data = dataRaw.map(row => row.map(cell => String(cell || '').trim()));
+const headers = data[0];
+const rows = data.slice(1);
+
+const requiredFields = ["PaymentTypeCode", "SerialNo", "PaymentDate", "PayerBank", "PayerCheckDigit", "PayerAccountNo", "CurrencyCode", "Amount", "SecurityCode", "PayerName", "PayerRef", "PayeeBank", "PayeeCheckDigit", "PayeeAccountNo", "PayeeName", "PayeeRef", "ReturnCode", "InputDate", "ProcessingDate", "InputBatchNo", "OutputBatchNo"];
+const headerMap = new Map(headers.map((h, i) => [h.trim().toLowerCase(), i]));
+
+let xmlPayments = rows.map(row => {
+let paymentXml = '  <Payment>';
+requiredFields.forEach(field => {
+const index = headerMap.get(field.toLowerCase());
+const value = (typeof index !== 'undefined') ? row[index] : '';
+paymentXml += `<${field}>${escapeXml(value)}</${field}>`;
+});
+paymentXml += '</Payment>';
+return paymentXml;
+}).join('\n');
+
+const finalXml = `<?xml version="1.0" encoding="UTF-8"?>\n<SDRFile>\n${xmlPayments}\n</SDRFile>`;
+
+const xmlPreviewHtml = `<pre class="bg-gray-900 text-white p-4 rounded-lg text-sm overflow-auto h-96"><code>${escapeXml(finalXml)}</code></pre>`;
+
+let successHtml = `<h3 class="text-xl font-bold mb-4">Conversion Preview</h3>
+               <div class="flex justify-end mb-4">
+                   <button id="download-xml-btn" class="bg-green-600 text-white px-4 py-2 rounded-md hover:bg-green-700">Download XML File</button>
+               </div>
+               ${xmlPreviewHtml}`;
+resultsEl.innerHTML = successHtml;
+
+document.getElementById('download-xml-btn').addEventListener('click', () => downloadFile(finalXml, 'SDRFile.xml'));
+
+} catch(e) {
+displayError('convert-results', e);
+} finally {
+hideLoader('convert-loader');
+resultsEl.classList.remove('hidden');
+}
+}
+
+function escapeXml(unsafe) {
+if (typeof unsafe !== 'string') {
+unsafe = String(unsafe || '');
+}
+return unsafe.replace(/[<>&'"]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;','\'':'&apos;','"':'&quot;'})[c]);
+}
 </script>
-
-<!-- Optional libraries you can enable by uncommenting -->
-<!-- <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script> -->
-<!--
-<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.172/pdf.min.js"></script>
-<script>pdfjsLib = window['pdfjs-dist/build/pdf'];</script>
--->
-
 </body>
 </html>
-```
