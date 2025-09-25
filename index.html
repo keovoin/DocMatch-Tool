@@ -278,143 +278,98 @@
         // --- Core Logic for Each Tab ---
 
        async function runVerification() {
-            showLoader('verify-loader');
-            const resultsEl = document.getElementById('verify-results');
-            resultsEl.classList.add('hidden');
-        
-            try {
-                // 1. Read all Excel files
-                const softDataPromises = softFiles.map(readExcelFile);
-                const allSoftDataArrays = await Promise.all(softDataPromises);
-        
-                let combinedSoftDataRaw = [];
-                allSoftDataArrays.forEach((data, index) => {
-                    if (!data || data.length === 0) return;
-                    if (index === 0) combinedSoftDataRaw.push(...data);
-                    else combinedSoftDataRaw.push(...data.slice(1));
-                });
-                if (combinedSoftDataRaw.length < 2) throw new Error("Excel files must contain a header and at least one data row.");
-        
-                // 2. Extract all tables from PDFs using Gemini OCR
-                const prompt = `Analyze this document. Identify the main table. Extract all rows, including headers. Return data as a JSON object: {"table_data": [["Header1"], ["Row1Cell1"]]}. Ensure the header is the first row.`;
-                const hardDataPromises = hardFiles.map(file => callGeminiOcr(file, prompt));
-                const allHardDataResponses = await Promise.all(hardDataPromises);
-        
-                let combinedHardDataRaw = [];
-                allHardDataResponses.forEach((response, index) => {
-                    const data = response.table_data;
-                    if (!data || data.length === 0) return;
-                    if (index === 0) combinedHardDataRaw.push(...data);
-                    else combinedHardDataRaw.push(...data.slice(1));
-                });
-                if (combinedHardDataRaw.length < 2) throw new Error("AI could not extract valid tables from the provided PDF(s).");
-        
-                // 3. Prepare headers and rows
-                const softData = combinedSoftDataRaw.map(row => row.map(cell => String(cell || '')));
-                const hardData = combinedHardDataRaw.map(row => row.map(cell => String(cell || '')));
-                const softHeaders = softData[0];
-                const hardHeaders = hardData[0];
-                const softRows = softData.slice(1);
-                const hardRows = hardData.slice(1);
-        
-                // 4. Row similarity function (simple, can be improved with fuzzy matching)
-                function rowSimilarity(rowA, rowB) {
-                    let matches = 0;
-                    let total = Math.max(rowA.length, rowB.length);
-                    for (let i = 0; i < total; i++) {
-                        const valA = (rowA[i] || '').trim();
-                        const valB = (rowB[i] || '').trim();
-                        if (!valA && !valB) continue;
-                        // Exact match, can add looser logic for Khmer names/numbers
-                        if (valA === valB) matches++;
-                        // Optionally: add numeric tolerance, Khmer transliteration, etc
-                    }
-                    return matches / total;
-                }
-        
-                // 5. Match each PDF row to the best Excel row
-                const threshold = 0.6; // Lower means more tolerant; adjust as needed
-                const matches = [];
-                const usedSoftIndexes = new Set();
-        
-                hardRows.forEach((hardRow, hardIdx) => {
-                    let bestScore = 0;
-                    let bestSoftIdx = -1;
-                    softRows.forEach((softRow, softIdx) => {
-                        if (usedSoftIndexes.has(softIdx)) return;
-                        const score = rowSimilarity(hardRow, softRow);
-                        if (score > bestScore) {
-                            bestScore = score;
-                            bestSoftIdx = softIdx;
-                        }
+                showLoader('verify-loader');
+                const resultsEl = document.getElementById('verify-results');
+                resultsEl.classList.add('hidden');
+            
+                try {
+                    // Read Excel and PDF data
+                    const softDataArrays = await Promise.all(softFiles.map(readExcelFile));
+                    let excelData = [];
+                    softDataArrays.forEach((data, idx) => {
+                        if (!data || !data.length) return;
+                        if (idx === 0) excelData.push(...data);
+                        else excelData.push(...data.slice(1));
                     });
-                    if (bestScore >= threshold && bestSoftIdx > -1) {
-                        matches.push({hardIdx, softIdx: bestSoftIdx, score: bestScore});
-                        usedSoftIndexes.add(bestSoftIdx);
+            
+                    if (excelData.length < 2) throw new Error("Excel file must contain header and at least one data row.");
+            
+                    const prompt = `Extract the main table from this document as a JSON object: {"table_data":[["Header1",...],["Row1Cell1",...],["Row2Cell1",...]]}. If no header present, use the first row as header.`;
+                    const pdfDataArrays = await Promise.all(hardFiles.map(file => callGeminiOcr(file, prompt)));
+                    let pdfData = [];
+                    pdfDataArrays.forEach((response, idx) => {
+                        const table = response.table_data;
+                        if (!table || !table.length) return;
+                        if (idx === 0) pdfData.push(...table);
+                        else pdfData.push(...table.slice(1));
+                    });
+            
+                    if (pdfData.length < 1) throw new Error("PDF table extraction failed.");
+            
+                    // Header handling
+                    let headers = excelData[0];
+                    if (pdfData[0].length === headers.length && !headers.some(h => h === pdfData[0][0])) {
+                        // PDF has header, use it
+                        headers = pdfData[0];
+                        pdfData = pdfData.slice(1);
+                        excelData = excelData.slice(1);
                     } else {
-                        matches.push({hardIdx, softIdx: null, score: bestScore});
+                        pdfData = pdfData.slice(1);
+                        excelData = excelData.slice(1);
                     }
-                });
-        
-                // Add unmatched Excel rows
-                softRows.forEach((softRow, softIdx) => {
-                    if (!usedSoftIndexes.has(softIdx)) {
-                        matches.push({hardIdx: null, softIdx, score: 0});
-                    }
-                });
-        
-                // 6. Render result
-                let html = `<h3 class="text-xl font-bold mb-4">Comparison Results (No Unique Key)</h3>`;
-                if (matches.length === 0) {
-                    html += `<p class="p-4 bg-green-100 text-green-800 rounded-md">✅ No mismatches detected!</p>`;
-                } else {
-                    html += `<p class="text-lg font-semibold text-red-600 mb-4">${matches.length} records processed. Threshold for match: ${threshold}</p>`;
-                    html += `<div class="overflow-x-auto"><table class="w-full text-sm text-left">
-                        <thead class="bg-gray-100 text-gray-700"><tr>
-                            <th class="p-3">Source</th>
-                            ${softHeaders.map(h => `<th class="p-3">${h}</th>`).join('')}
-                            <th class="p-3">Match Score</th>
-                        </tr></thead><tbody>`;
-        
-                    matches.forEach(m => {
-                        if (m.hardIdx != null && m.softIdx != null) {
-                            // Matched row
-                            html += `<tr class="${m.score < 1 ? 'mismatch-row' : ''} border-b">
-                                <td class="p-3 font-medium">PDF ↔ Excel</td>
-                                ${softRows[m.softIdx].map((cell, i) => {
-                                    const hardCell = hardRows[m.hardIdx][i] || '';
-                                    return `<td class="p-3${cell !== hardCell ? ' mismatch-cell' : ''}">${cell || ''}</td>`;
+            
+                    // Row-by-row comparison
+                    const maxRows = Math.max(excelData.length, pdfData.length);
+            
+                    let html = `
+                    <div class="fixed inset-0 bg-white overflow-auto z-40 p-3">
+                        <div class="flex justify-between items-center mb-4">
+                            <h3 class="text-2xl font-bold">Comparison Results (Row-by-Row)</h3>
+                            <button onclick="document.getElementById('verify-results').classList.add('hidden')" class="bg-gray-200 px-3 py-1 rounded hover:bg-gray-300">Close</button>
+                        </div>
+                        <div class="overflow-auto max-h-[80vh] border rounded shadow">
+                            <table class="min-w-full text-sm text-left">
+                                <thead class="bg-gray-100 sticky top-0 z-10">
+                                    <tr>
+                                        <th class="p-3 bg-blue-100">Row #</th>
+                                        ${headers.map(h => `<th class="p-3">${h}</th>`).join('')}
+                                        <th class="p-3 bg-blue-100">Source</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                    `;
+                    for (let i = 0; i < maxRows; i++) {
+                        const excelRow = excelData[i] || Array(headers.length).fill("");
+                        const pdfRow = pdfData[i] || Array(headers.length).fill("");
+                        const isMatch = excelRow.every((cell, idx) => String(cell).trim() === String(pdfRow[idx]).trim());
+                        html += `
+                            <tr class="${isMatch ? "bg-green-50" : "bg-red-50"}">
+                                <td class="p-3 font-bold">${i + 1}</td>
+                                ${headers.map((h, idx) => {
+                                    const cellExcel = excelRow[idx] || "";
+                                    const cellPDF = pdfRow[idx] || "";
+                                    const mismatch = String(cellExcel).trim() !== String(cellPDF).trim();
+                                    return `<td class="p-3 ${mismatch ? 'bg-red-200 font-semibold text-red-700' : ''}">${cellExcel}<br><span class="text-blue-700">${cellPDF}</span></td>`;
                                 }).join('')}
-                                <td class="p-3">${(m.score * 100).toFixed(0)}%</td>
-                            </tr>`;
-                        } else if (m.hardIdx != null) {
-                            // PDF row not matched
-                            html += `<tr class="bg-red-50 border-b">
-                                <td class="p-3 font-medium text-red-600">PDF Only</td>
-                                ${hardRows[m.hardIdx].map(cell => `<td class="p-3">${cell}</td>`).join('')}
-                                <td class="p-3">No match</td>
-                            </tr>`;
-                        } else if (m.softIdx != null) {
-                            // Excel row not matched
-                            html += `<tr class="bg-yellow-50 border-b">
-                                <td class="p-3 font-medium text-yellow-700">Excel Only</td>
-                                ${softRows[m.softIdx].map(cell => `<td class="p-3">${cell}</td>`).join('')}
-                                <td class="p-3">No match</td>
-                            </tr>`;
-                        }
-                    });
-        
-                    html += `</tbody></table></div>`;
+                                <td class="p-3 font-bold">${excelRow.some(c => c) ? "Excel" : ""}${pdfRow.some(c => c) ? "/PDF" : ""}</td>
+                            </tr>
+                        `;
+                    }
+                    html += `
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                    `;
+            
+                    resultsEl.innerHTML = html;
+                } catch(e) {
+                    displayError('verify-results', e);
+                } finally {
+                    hideLoader('verify-loader');
+                    resultsEl.classList.remove('hidden');
                 }
-                resultsEl.innerHTML = html;
-        
-            } catch(e) {
-                displayError('verify-results', e);
-            } finally {
-                hideLoader('verify-loader');
-                resultsEl.classList.remove('hidden');
             }
-        }
         // 2. Extraction Logic
         async function runExtraction() {
             showLoader('extract-loader');
