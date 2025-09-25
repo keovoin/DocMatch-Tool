@@ -314,7 +314,7 @@
                 const hardData = combinedHardDataRaw.map(row => row.map(cell => String(cell || '')));
 
                 const findColumnIndex = (headers, aliases) => {
-                    const cleanedHeaders = headers.map(h => h.toLowerCase().replace(/\s/g, ''));
+                    const cleanedHeaders = headers.map(h => String(h || '').toLowerCase().replace(/\s/g, ''));
                     for (const alias of aliases) {
                         const index = cleanedHeaders.findIndex(ch => ch.includes(alias));
                         if (index !== -1) return index;
@@ -325,15 +325,17 @@
                 const softHeaders = softData[0];
                 const hardHeaders = hardData[0];
                 
+                // NEW: Expanded dictionary for English and Khmer
                 const allKeyColumns = {
-                    name: { aliases: ['beneficiaryname', 'payeename', 'receivername', 'name', 'ឈ្មោះ', 'ឈ្មោះអជ្ញាបណ្ណ'], softIndex: -1, hardIndex: -1, label: 'Name/ឈ្មោះ' },
-                    account: { aliases: ['accountno', 'accountnumber', 'payeeaccountno', 'លេខគណនី'], softIndex: -1, hardIndex: -1, label: 'Account/លេខគណនី' },
-                    bank: { aliases: ['bankname', 'payeebank', 'ឈ្មោះធនាគារ'], softIndex: -1, hardIndex: -1, label: 'Bank/ឈ្មោះធនាគារ' },
-                    amount: { aliases: ['amount', 'ចំនួនទឹកប្រាក់', 'ទឹកប្រាក់'], softIndex: -1, hardIndex: -1, label: 'Amount/ទឹកប្រាក់' }
+                    name: { aliases: ['beneficiaryname', 'payeename', 'receivername', 'name', 'ឈ្មោះ', 'អជ្ញាបណ្ណ', 'អតិថិជន', 'អ្នកទទួល'], label: 'Name/ឈ្មោះ' },
+                    account: { aliases: ['accountno', 'accountnumber', 'payeeaccountno', 'acct', 'លេខគណនី', 'គណនី'], label: 'Account/លេខគណនី' },
+                    bank: { aliases: ['bankname', 'payeebank', 'bank', 'ធនាគារ'], label: 'Bank/ឈ្មោះធនាគារ' },
+                    amount: { aliases: ['amount', 'total', 'value', 'ចំនួនទឹកប្រាក់', 'ទឹកប្រាក់', 'សរុប'], label: 'Amount/ទឹកប្រាក់' }
                 };
                 
                 const foundMatchingKeys = [];
                 const excludedMatchingKeys = [];
+
                 for (const key in allKeyColumns) {
                     allKeyColumns[key].softIndex = findColumnIndex(softHeaders, allKeyColumns[key].aliases);
                     allKeyColumns[key].hardIndex = findColumnIndex(hardHeaders, allKeyColumns[key].aliases);
@@ -343,10 +345,9 @@
                         excludedMatchingKeys.push(allKeyColumns[key].label);
                     }
                 }
-
-                // New minimum requirement check
+                
                 if (!foundMatchingKeys.includes('account') || !foundMatchingKeys.includes('amount')) {
-                    throw new Error("Match Failed: Both files must contain identifiable 'Account' and 'Amount' columns.");
+                    throw new Error("Match Failed: Both files must contain identifiable 'Account' and 'Amount' columns for a reliable comparison.");
                 }
 
                 const getCompositeKey = (row, indices, keysToUse) => {
@@ -393,7 +394,7 @@
                             const hardIndex = hardHeaderMap.get(headerKey);
 
                             if (typeof softIndex !== 'undefined' && typeof hardIndex !== 'undefined') {
-                                const isAmount = headerKey.includes('amount') || headerKey.includes('ទឹកប្រាក់');
+                                const isAmount = headerKey.includes('amount') || headerKey.includes('ទឹកប្រាក់') || headerKey.includes('សរុប');
                                 if (!compareValues(softRow[softIndex], hardRow[hardIndex], isAmount)) {
                                     mismatchDetails[header] = { soft: softRow[softIndex], hard: hardRow[hardIndex] };
                                 }
@@ -414,7 +415,7 @@
 
                 // 4. Render results
                 let html = `<h3 class="text-xl font-bold mb-4">Comparison Results</h3>`;
-                if(excludedMatchingKeys.length > 0){
+                if(excludedMatchingKeys.length > 0 && excludedMatchingKeys.length < 4){ // Only show if some, but not all, keys were excluded
                     html += `<div class="p-3 mb-4 bg-yellow-50 border border-yellow-200 rounded-lg text-yellow-800 text-sm">
                         <strong>Notice:</strong> The following columns were not found in both files and were excluded from the matching logic: <strong>${excludedMatchingKeys.join(', ')}</strong>.
                     </div>`;
