@@ -185,33 +185,39 @@
 
         // --- Helper and AI Functions ---
         async function callGeminiOcr(file, prompt) {
-            const apiKey = "AIzaSyByQkxfWWVZByQ4yiUFok0UwYBmYjIfJtk"; 
-
+            // 👇 Replace YOUR_API_KEY_HERE with your actual API key
+            const apiKey = "AIzaSyByQkxfWWVZByQ4yiUFok0UwYBmYjIfJtk";  
+        
             const base64Data = await fileToBase64(file);
             const model = "gemini-1.5-pro";
             const apiUrl = `https://generativelanguage.googleapis.com/v1/models/${model}:generateContent?key=${apiKey}`;
-
+        
             const payload = {
-                contents: [{ parts: [{ text: prompt }, { inlineData: { mimeType: file.type, data: base64Data } }] }],
-                generationConfig: { responseMimeType: "application/json" }
+                contents: [
+                    {
+                        parts: [
+                            { text: prompt },
+                            { inlineData: { mimeType: file.type, data: base64Data } }
+                        ]
+                    }
+                ],
+                generationConfig: {
+                    temperature: 0.2,
+                    maxOutputTokens: 1024
+                }
             };
-            
-            try {
-                const response = await fetch(apiUrl, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(payload)
-                });
-                if (!response.ok) throw new Error(`API Error: ${response.status} - ${await response.text()}`);
-                const result = await response.json();
-                const text = result.candidates?.[0]?.content?.parts?.[0]?.text;
-                if (!text) throw new Error("AI response was empty or in an unexpected format.");
-                const cleanedJsonString = text.replace(/```json\n|```/g, '').trim();
-                return JSON.parse(cleanedJsonString);
-            } catch(e) {
-                console.error("Error during AI call:", e);
-                throw e;
+        
+            const response = await fetch(apiUrl, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(payload)
+            });
+        
+            if (!response.ok) {
+                throw new Error(`API Error: ${response.status} - ${await response.text()}`);
             }
+        
+            return response.json();
         }
         
         function fileToBase64(file) {
