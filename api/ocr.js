@@ -1,7 +1,11 @@
 // api/ocr.js
 export default async function handler(req, res) {
   // 👇 Add this line here
-  console.log("Key loaded?", !!process.env.GEMINI_API_KEY);
+  console.log("Function invoked");
+  res.status(200).json({ ok: true });
+  console.log("Key present?", !!process.env.GEMINI_API_KEY);
+  console.log("Prompt length:", req.body?.prompt?.length);
+  console.log("File data length:", req.body?.fileData?.length);
 
   if (req.method !== "POST") {
     return res.status(405).json({ error: "Method not allowed" });
