@@ -277,47 +277,6 @@
 
         // --- Core Logic for Each Tab ---
 
-          async function askPerplexity(userText) {
-            // Compose OpenAI-style messages array
-            const messages = [
-              { role: "system", content: "You are a precise document matching assistant." },
-              { role: "user", content: userText }
-            ];
-        
-            const r = await fetch("/api/ask", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                model: "sonar-pro",        // try "sonar-pro" if you want deeper web search
-                messages,
-                temperature: 0.2,
-                max_tokens: 800
-              })
-            });
-        
-            if (!r.ok) {
-              const err = await r.json().catch(() => ({}));
-              throw new Error(`Perplexity API error ${r.status}: ${JSON.stringify(err)}`);
-            }
-        
-            const data = await r.json();
-            // Perplexity returns OpenAI-like structure
-            return data?.choices?.[0]?.message?.content ?? "";
-          }
-        
-          // Example: hook it up to your UI send button
-          async function onSendClicked() {
-            const input = document.getElementById("prompt").value;
-            const outputEl = document.getElementById("output");
-            outputEl.textContent = "Thinking...";
-            try {
-              const answer = await askPerplexity(input);
-              outputEl.textContent = answer;
-            } catch (e) {
-              outputEl.textContent = e.message;
-            }
-          }
-
         async function runVerification() {
             showLoader('verify-loader');
             const resultsEl = document.getElementById('verify-results');
