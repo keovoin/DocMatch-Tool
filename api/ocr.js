@@ -1,41 +1,36 @@
 // api/ocr.js
 export default async function handler(req, res) {
-  // 👇 Add this line here
-  console.log("Function invoked");
-  res.status(200).json({ ok: true });
-  console.log("Key present?", !!process.env.GEMINI_API_KEY);
-  console.log("Prompt length:", req.body?.prompt?.length);
-  console.log("File data length:", req.body?.fileData?.length);
-
   if (req.method !== "POST") {
     return res.status(405).json({ error: "Method not allowed" });
   }
 
   try {
     const { prompt, fileData, mimeType } = req.body;
-    const apiKey = process.env.GEMINI_API_KEY;
+    const apiKey = process.env.GEMINI_API_KEY; // stored in Vercel, not in code
 
     const model = "models/gemini-1.5-flash";
     const apiUrl = `https://generativelanguage.googleapis.com/v1/${model}:generateContent?key=${apiKey}`;
 
-  const payload = {
-    contents: [
-      {
-        parts: [
-          { text: prompt },
-          { inlineData: { mimeType, data: fileData } }
-        ]
-      }
-    ],
-    generationConfig: { temperature: 0.2, maxOutputTokens: 1024 }
-  };
+    const payload = {
+      contents: [
+        {
+          parts: [
+            { text: prompt },
+            { inlineData: { mimeType, data: fileData } }
+          ]
+        }
+      ]
+    };
 
-  const response = await fetch(apiUrl, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload)
-  });
+    const response = await fetch(apiUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
 
-  const data = await response.json();
-  res.status(response.status).json(data);
+    const data = await response.json();
+    res.status(response.status).json(data);
+  } catch (err) {
+    res.status(500).json({ error: "Proxy error", details: err.message });
+  }
 }
