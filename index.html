@@ -189,7 +189,7 @@
             const apiKey = "AIzaSyByQkxfWWVZByQ4yiUFok0UwYBmYjIfJtk";  
         
             const base64Data = await fileToBase64(file);
-            const model = " gemini-1.5-flash";
+            const model = "models/gemini-1.5-flash";
             const apiUrl = `https://generativelanguage.googleapis.com/v1/models/${model}:generateContent?key=${apiKey}`;
         
             const payload = {
