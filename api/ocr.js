@@ -1,14 +1,18 @@
 // api/ocr.js
 export default async function handler(req, res) {
+  // 👇 Add this line here
+  console.log("Key loaded?", !!process.env.GEMINI_API_KEY);
+
   if (req.method !== "POST") {
     return res.status(405).json({ error: "Method not allowed" });
   }
 
-  const { prompt, fileData, mimeType } = req.body;
-  const apiKey = process.env.GEMINI_API_KEY;
+  try {
+    const { prompt, fileData, mimeType } = req.body;
+    const apiKey = process.env.GEMINI_API_KEY;
 
-  const model = "models/gemini-1.5-flash";
-  const apiUrl = `https://generativelanguage.googleapis.com/v1/${model}:generateContent?key=${apiKey}`;
+    const model = "models/gemini-1.5-flash";
+    const apiUrl = `https://generativelanguage.googleapis.com/v1/${model}:generateContent?key=${apiKey}`;
 
   const payload = {
     contents: [
