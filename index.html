@@ -207,10 +207,14 @@
                 }
             };
         
-            const response = await fetch(apiUrl, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(payload)
+            const response = await fetch("/api/ocr", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                prompt,
+                fileData: base64Data,
+                mimeType: file.type
+              })
             });
         
             if (!response.ok) {
